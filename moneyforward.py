@@ -56,7 +56,9 @@ class MoneyForward:
             actions = ActionChains(self._driver)
             if self._driver.current_url != 'https://moneyforward.com/cf':
                 self._driver.find_element(By.XPATH, '//li[contains(descendant::text(), "家計")]').click() #click kakei
-            self._driver.find_element(By.XPATH, '//span[@class="uikit-year-month-select-dropdown-text"]').click() #click year month select
+            xpath = '//span[@class="uikit-year-month-select-dropdown-text"]'
+            actions.move_to_element(self._driver.find_element(By.XPATH, xpath)).perform()
+            self._driver.find_element(By.XPATH, xpath).click() #click year month select
             xpath = '//div[@class="uikit-year-month-select-dropdown-year-part" and contains(text(), "' + str(year) + '")]'
             actions.move_to_element(self._driver.find_element(By.XPATH, xpath)).perform() #mouse over year
             xpath = '//a[@data-month="' + str(1) + '" and @data-year="' + str(year) + '"]'
