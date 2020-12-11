@@ -7,6 +7,8 @@ from selenium.common.exceptions import TimeoutException
 from selenium.webdriver.common.action_chains import ActionChains
 import re
 import json
+import requests
+import html
 
 class MoneyForward:
     def __init__(self, jsontext):
@@ -51,30 +53,52 @@ class MoneyForward:
         except TimeoutException:
             print("UPDATE TIMEOUT!!")
             return False
-    def get(self, year, month):
-        try:
-            actions = ActionChains(self._driver)
-            if self._driver.current_url != 'https://moneyforward.com/cf':
-                self._driver.find_element(By.XPATH, '//li[contains(descendant::text(), "家計")]').click() #click kakei
-            xpath = '//span[@class="uikit-year-month-select-dropdown-text"]'
-            actions.move_to_element(self._driver.find_element(By.XPATH, xpath)).perform()
-            self._driver.find_element(By.XPATH, xpath).click() #click year month select
-            xpath = '//div[@class="uikit-year-month-select-dropdown-year-part" and contains(text(), "' + str(year) + '")]'
-            actions.move_to_element(self._driver.find_element(By.XPATH, xpath)).perform() #mouse over year
-            xpath = '//a[@data-month="' + str(1) + '" and @data-year="' + str(year) + '"]'
-            actions.move_to_element(self._driver.find_element(By.XPATH, xpath)).perform() #mouse over year
-            xpath = '//a[@data-month="' + str(month) + '" and @data-year="' + str(year) + '"]'
-            self._driver.find_element(By.XPATH, xpath).click() #click month
-            xpath = '//span[@class="fc-header-title in-out-header-title fc-state-disabled"]'
-            WebDriverWait(self._driver, 3).until(EC.presence_of_all_elements_located((By.XPATH, xpath))) #wait loading
-            xpath = '//span[@class="fc-header-title in-out-header-title"]'
-            WebDriverWait(self._driver, 3).until(EC.presence_of_all_elements_located((By.XPATH, xpath))) #wait loading
-            elements = self._driver.find_elements(By.XPATH, '//table[@id="cf-detail-table"]/tbody/tr') #get table
-            tmp = [[td.text for td in element.find_elements(By.XPATH, './td')] for element in elements]
-            return self._convert_mfdata(tmp, year)
-        except TimeoutException:
-            print("TIMEOUT!!")
-            return []
+    def get(self, year, month, use_selenium = False):
+        if use_selenium:
+            try:
+                actions = ActionChains(self._driver)
+                if self._driver.current_url != 'https://moneyforward.com/cf':
+                    self._driver.find_element(By.XPATH, '//li[contains(descendant::text(), "家計")]').click() #click kakei
+                xpath = '//span[@class="uikit-year-month-select-dropdown-text"]'
+                actions.move_to_element(self._driver.find_element(By.XPATH, xpath)).perform()
+                self._driver.find_element(By.XPATH, xpath).click() #click year month select
+                xpath = '//div[@class="uikit-year-month-select-dropdown-year-part" and contains(text(), "' + str(year) + '")]'
+                actions.move_to_element(self._driver.find_element(By.XPATH, xpath)).perform() #mouse over year
+                xpath = '//a[@data-month="' + str(1) + '" and @data-year="' + str(year) + '"]'
+                actions.move_to_element(self._driver.find_element(By.XPATH, xpath)).perform() #mouse over year
+                xpath = '//a[@data-month="' + str(month) + '" and @data-year="' + str(year) + '"]'
+                self._driver.find_element(By.XPATH, xpath).click() #click month
+                xpath = '//span[@class="fc-header-title in-out-header-title fc-state-disabled"]'
+                WebDriverWait(self._driver, 3).until(EC.presence_of_all_elements_located((By.XPATH, xpath))) #wait loading
+                xpath = '//span[@class="fc-header-title in-out-header-title"]'
+                WebDriverWait(self._driver, 3).until(EC.presence_of_all_elements_located((By.XPATH, xpath))) #wait loading
+                elements = self._driver.find_elements(By.XPATH, '//table[@id="cf-detail-table"]/tbody/tr') #get table
+                ret = [[td.text.replace('\n', '') for td in element.find_elements(By.XPATH, './td')] for element in elements]
+            except TimeoutException:
+                print("TIMEOUT!!")
+                ret = []
+        else:
+            csrf = self._driver.find_element(By.XPATH, '//meta[@name="csrf-token"]').get_attribute("content")
+            headers = {"Accept": "text/javascript", "X-CSRF-Token": csrf, "X-Requested-With": "XMLHttpRequest"}
+            session = requests.session()
+            for cookie in self._driver.get_cookies():
+                session.cookies.set(cookie["name"], cookie["value"])
+            post_data = "from="+str(year)+"/"+str(month)+"/1&service_id=&account_id_hash="
+            result = session.post("https://moneyforward.com/cf/fetch", data=post_data, headers=headers)
+            tmp = re.search(r'\$\("\.list_body"\)\.append\(\'(.*?)\'\);', html.unescape(result.text)).group(1).replace(r'\n', '').replace('\\', '')
+            trs = re.findall(r'<tr.*?<\/tr>', tmp)
+            ret = []
+            for tr in trs:
+                rets = []
+                rets.append(re.search(r'data-table-sortable-value=\'(.*?)\'>', tr).group(1))
+                for tds in re.findall(r'<td.*?<\/td>', tr):
+                    tds = re.sub(r'<select.*>.*</select.*>', '', tds)
+                    tds = re.sub(r'<.*?>', '', tds)
+                    rets.append(tds)
+                ret.append(rets)
+            ret.sort(reverse=True)
+            ret = [i[1:] for i in ret]
+        return self._convert_mfdata(ret, year)
     def _convert_mfdata(self, text_data, year):
         ret = []
         for tds in text_data:
@@ -88,7 +112,7 @@ class MoneyForward:
             else:
                 furikae = False
                 price = int(re.sub('[^0-9-]', '', tmp))
-            bank = tds[4].replace('\n', '')
+            bank = tds[4]
             item1 = "振替" if furikae else tds[5]
             item2 = tds[6]
             memo = tds[7]
