@@ -27,7 +27,7 @@ mf = MoneyForward(os.environ['MONEYFORWARD_KEYFILE'])
 if (not(mf.login())):
     del mf
     sys.exit()
-if len(sys.argv) == 2 and sys.argv[1] == "--update":
+if args.update:
     mf.update()
 ss = SpreadSheet(os.environ['SPREADSHEET_KEYFILE'],
     os.environ['SPREADSHEET_ID'])
