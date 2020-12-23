@@ -73,7 +73,17 @@ class MoneyForward:
                 xpath = '//span[@class="fc-header-title in-out-header-title"]'
                 WebDriverWait(self._driver, 3).until(EC.presence_of_all_elements_located((By.XPATH, xpath))) #wait loading
                 elements = self._driver.find_elements(By.XPATH, '//table[@id="cf-detail-table"]/tbody/tr') #get table
-                ret = [[td.text.replace('\n', '') for td in element.find_elements(By.XPATH, './td')] for element in elements]
+                ret = []
+                self._driver.implicitly_wait(0.1)
+                for element in elements:
+                    tds = element.find_elements(By.XPATH, './td')
+                    try:
+                        tmp = WebDriverWait(self._driver, 0.1).until(lambda d: tds[0].find_element(By.XPATH, './/i'))
+                        if 'icon-ban-circle' in tmp.get_attribute("class"):
+                            continue
+                    except:
+                        pass
+                    ret.append([td.text.replace('\n', '') for td in tds])
             except TimeoutException:
                 print("TIMEOUT!!")
                 ret = []
@@ -90,6 +100,8 @@ class MoneyForward:
             ret = []
             for tr in trs:
                 rets = []
+                if 'icon-ban-circle' in tr:
+                    continue
                 rets.append(re.search(r'data-table-sortable-value=\'(.*?)\'>', tr).group(1))
                 for tds in re.findall(r'<td.*?<\/td>', tr):
                     tds = re.sub(r'<select.*>.*</select.*>', '', tds)
