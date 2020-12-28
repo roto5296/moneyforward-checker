@@ -101,6 +101,8 @@ class MoneyForward:
                     By.XPATH, '//table[@id="cf-detail-table"]/tbody/tr')  # get table
                 ret = []
                 for element in elements:
+                    transaction_id = int(element.get_attribute(
+                        "id").replace('js-transaction-', ''))
                     tds = element.find_elements(By.XPATH, './td')
                     try:
                         tmp = WebDriverWait(self._driver, 0.1).until(
@@ -109,7 +111,8 @@ class MoneyForward:
                             continue
                     except:
                         pass
-                    ret.append([td.text.replace('\n', '') for td in tds])
+                    ret.append(
+                        (transaction_id, [td.text.replace('\n', '') for td in tds]))
             except TimeoutException:
                 print("TIMEOUT!!")
                 ret = []
@@ -133,20 +136,19 @@ class MoneyForward:
                 rets = []
                 if 'icon-ban-circle' in tr:
                     continue
-                rets.append(
-                    re.search(r'data-table-sortable-value=\'(.*?)\'>', tr).group(1))
+                transaction_id = int(re.search(
+                    r'id=\'js-transaction-(.*?)\'>', tr).group(1))
                 for tds in re.findall(r'<td.*?<\/td>', tr):
                     tds = re.sub(r'<select.*>.*</select.*>', '', tds)
                     tds = re.sub(r'<.*?>', '', tds)
                     rets.append(tds)
-                ret.append(rets)
-            ret.sort(reverse=True)
-            ret = [i[1:] for i in ret]
+                ret.append((transaction_id, rets))
         return self._convert_mfdata(ret, year)
 
-    def _convert_mfdata(self, text_data, year):
+    def _convert_mfdata(self, dataset, year):
         ret = []
-        for tds in text_data:
+        for data in dataset:
+            (transaction_id, tds) = data
             tmp = tds[1]
             date = str(year)+"-"+tmp[0:2]+"-"+tmp[3:5]
             content = tds[2]
@@ -161,7 +163,9 @@ class MoneyForward:
             item1 = "振替" if furikae else tds[5]
             item2 = tds[6]
             memo = tds[7]
-            ret.append([date, content, price, bank, item1, item2, memo])
+            ret.append([transaction_id, date, content, price,
+                        bank, item1, item2, memo])
+        ret = sorted(ret, key=lambda x: (x[1], x[0]), reverse=True)
         return ret
 
     def __del__(self):

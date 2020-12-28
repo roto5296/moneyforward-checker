@@ -18,13 +18,14 @@ class SpreadSheet:
             ws = self._wb.worksheet(sname)
         except gspread.exceptions.WorksheetNotFound:
             return []
-        ws_data_list = ws.range('A3:G202')
+        ws_data_list = ws.range('A3:H202')
         ret = []
         for i in range(200):
-            if ws_data_list[i * 7].value == '':
+            if ws_data_list[i * 8].value == '':
                 break
-            tmp = [ws_data_list[j + i * 7].value for j in range(7)]
-            tmp[2] = int(tmp[2])
+            tmp = [ws_data_list[j + i * 8].value for j in range(8)]
+            tmp[0] = int(tmp[0])  # transaction id
+            tmp[3] = int(tmp[3])  # price
             ret.append(tmp)
         return ret
 
@@ -42,5 +43,5 @@ class SpreadSheet:
             wst_index = sheet_names.index('template')
             ws = self._wb.duplicate_sheet(
                 wss[wst_index].id, insert_sheet_index=wsb_index, new_sheet_name=sname)
-        ws.update('A3:G202', data +
-                  [['', '', '', '', '', '', '']] * (200-len(data)))
+        ws.update('A3:H202', data +
+                  [['', '', '', '', '', '', '', '']] * (200-len(data)))
