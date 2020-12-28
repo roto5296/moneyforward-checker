@@ -1,4 +1,5 @@
-import sys, os
+import sys
+import os
 import difflib
 from moneyforward import MoneyForward
 from spreadsheet import SpreadSheet
@@ -6,11 +7,13 @@ import threading
 import argparse
 import datetime
 
+
 def run(year, month, dict, obj, optn=None):
     if optn:
         dict[str(year) + '/' + str(month)] = obj.get(year, month, optn)
     else:
         dict[str(year) + '/' + str(month)] = obj.get(year, month)
+
 
 dt_now_jst = datetime.datetime.now(
     datetime.timezone(datetime.timedelta(hours=9)))
@@ -34,11 +37,11 @@ if (not(mf.login())):
 if args.update:
     mf.update()
 ss = SpreadSheet(os.environ['SPREADSHEET_KEYFILE'],
-    os.environ['SPREADSHEET_ID'])
+                 os.environ['SPREADSHEET_ID'])
 mfdata_dict = {}
 ssdata_dict = {}
 ts1 = [threading.Thread(target=run, args=(year, month, ssdata_dict, ss))
-    for (year, month) in ym_list]
+       for (year, month) in ym_list]
 for t in ts1:
     t.start()
 if args.selenium:
@@ -46,8 +49,8 @@ if args.selenium:
         run(year, month, mfdata_dict, mf, args.selenium)
 else:
     ts2 = [threading.Thread(target=run,
-        args=(year, month, mfdata_dict, mf, args.selenium))
-        for (year, month) in ym_list]
+                            args=(year, month, mfdata_dict, mf, args.selenium))
+           for (year, month) in ym_list]
     for t in ts2:
         t.start()
 for t in ts1:
@@ -69,7 +72,7 @@ for (year, month) in ym_list:
         d = difflib.HtmlDiff()
         with open(fname, mode='w') as f:
             f.write(d.make_file([', '.join(map(str, i)) for i in mfdata],
-                [', '.join(map(str, i)) for i in sdata]))
+                                [', '.join(map(str, i)) for i in sdata]))
         ss.update(year, month, mfdata)
 del mf
 del ss
