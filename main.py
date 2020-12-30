@@ -64,11 +64,11 @@ for (year, month) in ym_list:
     mfdata = mfdata_dict[str(year) + '/' + str(month)]
     sdata = ssdata_dict[str(year) + '/' + str(month)]
     if sdata == mfdata:
-        print("SAME")
+        print('SAME')
     elif len(mfdata) == 0:
-        print("MoneyForward No Data")
+        print('MoneyForward No Data')
     else:
-        print("There is diff\nUpdate sheet")
+        print('There is diff\nUpdate sheet')
         fname = 'diff' + str(month) + '.html'
         d = difflib.HtmlDiff()
         with open(fname, mode='w') as f:

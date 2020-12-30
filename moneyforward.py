@@ -24,19 +24,19 @@ class MoneyForwardABC(metaclass=ABCMeta):
     def login(self):
         print('login...')
         if self._inner_login():
-            print("LOGIN SUCCESS")
+            print('LOGIN SUCCESS')
             return True
         else:
-            print("LOGIN FAIL")
+            print('LOGIN FAIL')
             return False
 
     def update(self):
         print('update...')
         if self._inner_update():
-            print("UPDATE SUCCESS")
+            print('UPDATE SUCCESS')
             return True
         else:
-            print("UPDATE FAIL")
+            print('UPDATE FAIL')
             return False
 
     def get(self, year, month):
@@ -61,17 +61,17 @@ class MoneyForwardABC(metaclass=ABCMeta):
         for data in dataset:
             (transaction_id, tds) = data
             tmp = tds[1]
-            date = str(year) + "-" + tmp[0:2] + "-" + tmp[3:5]
+            date = str(year) + '-' + tmp[0:2] + '-' + tmp[3:5]
             content = tds[2]
             tmp = tds[3]
-            if "振替" in tmp:
+            if '振替' in tmp:
                 furikae = True
                 price = int(re.sub('[^0-9]', '', tmp))
             else:
                 furikae = False
                 price = int(re.sub('[^0-9-]', '', tmp))
             bank = tds[4]
-            item1 = "振替" if furikae else tds[5]
+            item1 = '振替' if furikae else tds[5]
             item2 = tds[6]
             memo = tds[7]
             ret.append([
@@ -209,7 +209,7 @@ class MoneyForwardSelenium(MoneyForwardABC):
             ret = []
             for element in elements:
                 transaction_id = int(
-                    element.get_attribute("id").replace(
+                    element.get_attribute('id').replace(
                         'js-transaction-', ''
                     )
                 )
@@ -218,7 +218,7 @@ class MoneyForwardSelenium(MoneyForwardABC):
                     tmp = WebDriverWait(self._driver, 0.1).until(
                         lambda d: tds[0].find_element(By.XPATH, './/i')
                     )
-                    if 'icon-ban-circle' in tmp.get_attribute("class"):
+                    if 'icon-ban-circle' in tmp.get_attribute('class'):
                         continue
                 except BaseException:
                     pass
@@ -238,31 +238,31 @@ class MoneyForwardRequests(MoneyForwardABC):
         super().__init__(jsontext)
         self._session = requests.session()
 
-    def _inner_login(self, use_selenium=False):
-        result = self._session.get("https://moneyforward.com/sign_in/")
+    def _inner_login(self):
+        result = self._session.get('https://moneyforward.com/sign_in/')
         qs = urllib.parse.urlparse(result.url).query
         qs_d = urllib.parse.parse_qs(qs)
         soup = BS(result.content, 'html.parser')
         token = soup.find('meta', {'name': 'csrf-token'})['content']
         post_data = {
-            "authenticity_token": token,
-            "_method": "post",
-            "mfid_user[email]": self._id,
-            "mfid_user[password]": self._pass,
-            "select_account": "true"
+            'authenticity_token': token,
+            '_method': 'post',
+            'mfid_user[email]': self._id,
+            'mfid_user[password]': self._pass,
+            'select_account': 'true'
         }
         post_data.update(qs_d)
         result = self._session.post(
-            "https://id.moneyforward.com/sign_in", data=post_data
+            'https://id.moneyforward.com/sign_in', data=post_data
         )
-        if result.url == "https://moneyforward.com/" \
+        if result.url == 'https://moneyforward.com/' \
                 and result.status_code == 200:
             return True
         else:
             return False
 
     def _inner_update(self):
-        result = self._session.get("https://moneyforward.com")
+        result = self._session.get('https://moneyforward.com')
         soup = BS(result.content, 'html.parser')
         urls = soup.find_all('a', {
             'data-remote': 'true',
@@ -272,14 +272,14 @@ class MoneyForwardRequests(MoneyForwardABC):
         urls = [url['href'] for url in urls]
         token = soup.find('meta', {'name': 'csrf-token'})['content']
         headers = {
-            "Accept": "text/javascript",
-            "X-CSRF-Token": token,
-            "X-Requested-With": "XMLHttpRequest"
+            'Accept': 'text/javascript',
+            'X-CSRF-Token': token,
+            'X-Requested-With': 'XMLHttpRequest'
         }
         self._results = []
         for url in urls:
             self._session.post(
-                "https://moneyforward.com" + url,
+                'https://moneyforward.com' + url,
                 headers=headers
             )
         delay = 2
@@ -288,28 +288,28 @@ class MoneyForwardRequests(MoneyForwardABC):
             time.sleep(delay)
             counter += delay
             result = self._session.get(
-                "https://moneyforward.com/accounts/polling"
+                'https://moneyforward.com/accounts/polling'
             )
-            if not result.json()["loading"]:
+            if not result.json()['loading']:
                 return True
         return False
 
     def _inner_get(self, year, month):
-        result = self._session.get("https://moneyforward.com")
+        result = self._session.get('https://moneyforward.com')
         soup = BS(result.content, 'html.parser')
         token = soup.find('meta', {'name': 'csrf-token'})['content']
         headers = {
-            "Accept": "text/javascript",
-            "X-CSRF-Token": token,
-            "X-Requested-With": "XMLHttpRequest"
+            'Accept': 'text/javascript',
+            'X-CSRF-Token': token,
+            'X-Requested-With': 'XMLHttpRequest'
         }
         post_data = {
-            "from": str(year) + "/" + str(month) + "/1",
-            "service_id": "",
-            "account_id_hash": "",
+            'from': str(year) + '/' + str(month) + '/1',
+            'service_id': '',
+            'account_id_hash': '',
         }
         result = self._session.post(
-            "https://moneyforward.com/cf/fetch",
+            'https://moneyforward.com/cf/fetch',
             data=post_data,
             headers=headers
         )
@@ -373,9 +373,9 @@ class MoneyForwardRequests(MoneyForwardABC):
             return False
         token = soup.find('meta', {'name': 'csrf-token'})['content']
         headers = {
-            "Accept": "text/javascript",
-            "X-CSRF-Token": token,
-            "X-Requested-With": "XMLHttpRequest"
+            'Accept': 'text/javascript',
+            'X-CSRF-Token': token,
+            'X-Requested-With': 'XMLHttpRequest'
         }
         date = str(year) + '/' + str(month).zfill(2) + '/' + str(day).zfill(2)
         post_data = {
