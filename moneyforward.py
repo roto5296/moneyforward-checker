@@ -9,7 +9,6 @@ from selenium.webdriver.common.action_chains import ActionChains
 import re
 import json
 import requests
-import html
 import urllib
 import time
 from bs4 import BeautifulSoup as BS
@@ -243,10 +242,8 @@ class MoneyForwardRequests(MoneyForwardABC):
         result = self._session.get("https://moneyforward.com/sign_in/")
         qs = urllib.parse.urlparse(result.url).query
         qs_d = urllib.parse.parse_qs(qs)
-        token = re.search(
-            r'<meta name="csrf-token" content="(.*?)" \/>',
-            html.unescape(result.text)
-        ).group(1)
+        soup = BS(result.content, 'html.parser')
+        token = soup.find('meta', {'name': 'csrf-token'})['content']
         post_data = {
             "authenticity_token": token,
             "_method": "post",
@@ -266,15 +263,14 @@ class MoneyForwardRequests(MoneyForwardABC):
 
     def _inner_update(self):
         result = self._session.get("https://moneyforward.com")
-        pattern = re.compile(
-            (r'<a data-remote="true" rel="nofollow"'
-             ' data-method="post" href="(.*?)">')
-        )
-        urls = re.findall(pattern, html.unescape(result.text))
-        token = re.search(
-            r'<meta name="csrf-token" content="(.*?)" \/>',
-            html.unescape(result.text)
-        ).group(1)
+        soup = BS(result.content, 'html.parser')
+        urls = soup.find_all('a', {
+            'data-remote': 'true',
+            'rel': 'nofollow',
+            'data-method': 'post'
+        })
+        urls = [url['href'] for url in urls]
+        token = soup.find('meta', {'name': 'csrf-token'})['content']
         headers = {
             "Accept": "text/javascript",
             "X-CSRF-Token": token,
@@ -300,10 +296,8 @@ class MoneyForwardRequests(MoneyForwardABC):
 
     def _inner_get(self, year, month):
         result = self._session.get("https://moneyforward.com")
-        token = re.search(
-            r'<meta name="csrf-token" content="(.*?)" \/>',
-            html.unescape(result.text)
-        ).group(1)
+        soup = BS(result.content, 'html.parser')
+        token = soup.find('meta', {'name': 'csrf-token'})['content']
         headers = {
             "Accept": "text/javascript",
             "X-CSRF-Token": token,
@@ -319,23 +313,23 @@ class MoneyForwardRequests(MoneyForwardABC):
             data=post_data,
             headers=headers
         )
-        tmp = re.search(
-            r'\$\("\.list_body"\)\.append\(\'(.*?)\'\);',
-            html.unescape(result.text)
-        ).group(1).replace(r'\n', '').replace('\\', '')
-        trs = re.findall(r'<tr.*?<\/tr>', tmp)
+        html = re.search(
+            r'\$\("\.list_body"\)\.append\((.*?)\);',
+            result.text
+        ).group(1)
+        html = eval(html).replace('\\', '')
+        soup = BS(html, 'html.parser')
+        trs = soup.find_all('tr')
         ret = []
         for tr in trs:
             rets = []
-            if 'icon-ban-circle' in tr:
+            if 'icon-ban-circle' in str(tr):
                 continue
-            transaction_id = int(re.search(
-                r'id=\'js-transaction-(.*?)\'>', tr
-            ).group(1))
-            for tds in re.findall(r'<td.*?<\/td>', tr):
-                tds = re.sub(r'<select.*>.*</select.*>', '', tds)
-                tds = re.sub(r'<.*?>', '', tds)
-                rets.append(tds)
+            transaction_id = int(tr['id'].replace('js-transaction-', ''))
+            for tds in tr.find_all('td'):
+                for tmp in tds.find_all('select'):
+                    tmp.clear()
+                rets.append(tds.text.replace('\n', ''))
             ret.append((transaction_id, rets))
         return ret
 
@@ -377,11 +371,7 @@ class MoneyForwardRequests(MoneyForwardABC):
             account_id = accounts[account]
         except BaseException:
             return False
-
-        token = re.search(
-            r'<meta name="csrf-token" content="(.*?)" \/>',
-            html.unescape(result.text)
-        ).group(1)
+        token = soup.find('meta', {'name': 'csrf-token'})['content']
         headers = {
             "Accept": "text/javascript",
             "X-CSRF-Token": token,
