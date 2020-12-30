@@ -12,6 +12,7 @@ import requests
 import html
 import urllib
 import time
+from bs4 import BeautifulSoup as BS
 
 
 class MoneyForwardABC(metaclass=ABCMeta):
@@ -337,3 +338,71 @@ class MoneyForwardRequests(MoneyForwardABC):
                 rets.append(tds)
             ret.append((transaction_id, rets))
         return ret
+
+    def insert(
+            self, year, month, day, price, account,
+            l_category='未分類', m_category='未分類', memo=''
+    ):
+        result = self._session.get('https://moneyforward.com/cf')
+        soup = BS(result.content, 'html.parser')
+        categories = {}
+        find_classes = [
+            'dropdown-menu main_menu plus',
+            'dropdown-menu main_menu minus'
+        ]
+        keys = ['plus', 'minus']
+        for (find_class, key) in zip(find_classes, keys):
+            d_pm = {}
+            c_pm = soup.find('ul', class_=find_class)
+            for l_c in c_pm.find_all('li', class_='dropdown-submenu'):
+                d = {m_c.text: {'id': int(m_c['id'])}
+                     for m_c in l_c.find_all('a', class_='m_c_name')}
+                tmp = l_c.find('a', class_='l_c_name')
+                d.update({'id': int(tmp['id'])})
+                d_pm.update({tmp.text: d})
+            categories.update({key: d_pm})
+        tmp = soup.find('select', id='user_asset_act_sub_account_id_hash')
+        accounts = {}
+        for ac in tmp.find_all('option'):
+            accounts.update({ac.text.split()[0]: ac['value']})
+        try:
+            if price > 0:
+                is_income = 1
+                l_c_id = categories['plus'][l_category]['id']
+                m_c_id = categories['plus'][l_category][m_category]['id']
+            else:
+                is_income = 0
+                l_c_id = categories['minus'][l_category]['id']
+                m_c_id = categories['minus'][l_category][m_category]['id']
+            account_id = accounts[account]
+        except BaseException:
+            return False
+
+        token = re.search(
+            r'<meta name="csrf-token" content="(.*?)" \/>',
+            html.unescape(result.text)
+        ).group(1)
+        headers = {
+            "Accept": "text/javascript",
+            "X-CSRF-Token": token,
+            "X-Requested-With": "XMLHttpRequest"
+        }
+        date = str(year) + '/' + str(month).zfill(2) + '/' + str(day).zfill(2)
+        post_data = {
+            'user_asset_act[is_transfer]': 0,
+            'user_asset_act[is_income]': is_income,
+            'user_asset_act[updated_at]': date,
+            'user_asset_act[recurring_flag]': 0,
+            'user_asset_act[amount]': abs(price),
+            'user_asset_act[sub_account_id_hash]': account_id,
+            'user_asset_act[large_category_id]': l_c_id,
+            'user_asset_act[middle_category_id]': m_c_id,
+            'user_asset_act[content]': memo,
+            'commit': '保存する',
+        }
+        result = self._session.post(
+            'https://moneyforward.com/cf/create',
+            data=post_data,
+            headers=headers
+        )
+        return True
