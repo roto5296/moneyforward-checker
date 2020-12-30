@@ -5,10 +5,13 @@ from oauth2client.service_account import ServiceAccountCredentials
 
 class SpreadSheet:
     def __init__(self, jsontext, sheet_id):
-        scope = ['https://spreadsheets.google.com/feeds',
-                 'https://www.googleapis.com/auth/drive']
+        scope = [
+            'https://spreadsheets.google.com/feeds',
+            'https://www.googleapis.com/auth/drive'
+        ]
         credentials = ServiceAccountCredentials.from_json_keyfile_dict(
-            json.loads(jsontext), scope)
+            json.loads(jsontext), scope
+        )
         gc = gspread.authorize(credentials)
         self._wb = gc.open_by_key(sheet_id)
 
@@ -42,6 +45,10 @@ class SpreadSheet:
             wsb_index = sheet_names.index(snameb)
             wst_index = sheet_names.index('template')
             ws = self._wb.duplicate_sheet(
-                wss[wst_index].id, insert_sheet_index=wsb_index, new_sheet_name=sname)
-        ws.update('A3:H202', data +
-                  [['', '', '', '', '', '', '', '']] * (200-len(data)))
+                wss[wst_index].id,
+                insert_sheet_index=wsb_index,
+                new_sheet_name=sname
+            )
+        ws.update(
+            'A3:H202', data + [[''] * 8] * (200 - len(data))
+        )
