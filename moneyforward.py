@@ -335,7 +335,7 @@ class MoneyForwardRequests(MoneyForwardABC):
 
     def insert(
             self, year, month, day, price, account,
-            l_category='未分類', m_category='未分類', memo=''
+            l_category='未分類', m_category='未分類', memo='', is_transfer=False
     ):
         result = self._session.get('https://moneyforward.com/cf')
         soup = BS(result.content, 'html.parser')
@@ -356,21 +356,6 @@ class MoneyForwardRequests(MoneyForwardABC):
                 d_pm.update({tmp.text: d})
             categories.update({key: d_pm})
         tmp = soup.find('select', id='user_asset_act_sub_account_id_hash')
-        accounts = {}
-        for ac in tmp.find_all('option'):
-            accounts.update({ac.text.split()[0]: ac['value']})
-        try:
-            if price > 0:
-                is_income = 1
-                l_c_id = categories['plus'][l_category]['id']
-                m_c_id = categories['plus'][l_category][m_category]['id']
-            else:
-                is_income = 0
-                l_c_id = categories['minus'][l_category]['id']
-                m_c_id = categories['minus'][l_category][m_category]['id']
-            account_id = accounts[account]
-        except BaseException:
-            return False
         token = soup.find('meta', {'name': 'csrf-token'})['content']
         headers = {
             'Accept': 'text/javascript',
@@ -378,18 +363,46 @@ class MoneyForwardRequests(MoneyForwardABC):
             'X-Requested-With': 'XMLHttpRequest'
         }
         date = str(year) + '/' + str(month).zfill(2) + '/' + str(day).zfill(2)
-        post_data = {
-            'user_asset_act[is_transfer]': 0,
-            'user_asset_act[is_income]': is_income,
-            'user_asset_act[updated_at]': date,
-            'user_asset_act[recurring_flag]': 0,
-            'user_asset_act[amount]': abs(price),
-            'user_asset_act[sub_account_id_hash]': account_id,
-            'user_asset_act[large_category_id]': l_c_id,
-            'user_asset_act[middle_category_id]': m_c_id,
-            'user_asset_act[content]': memo,
-            'commit': '保存する',
-        }
+        accounts = {ac.text.split()[0]: ac['value']
+                    for ac in tmp.find_all('option')}
+        try:
+            if is_transfer:
+                ac_id_from = accounts[account[0]]
+                ac_id_to = accounts[account[1]]
+                post_data = {
+                    'user_asset_act[is_transfer]': 1,
+                    'user_asset_act[sub_account_id_hash_from]': ac_id_from,
+                    'user_asset_act[sub_account_id_hash_to]': ac_id_to,
+                    'user_asset_act[updated_at]': date,
+                    'user_asset_act[recurring_flag]': 0,
+                    'user_asset_act[amount]': abs(price),
+                    'user_asset_act[content]': memo,
+                    'commit': '保存する',
+                }
+            else:
+                if price > 0:
+                    is_income = 1
+                    l_c_id = categories['plus'][l_category]['id']
+                    m_c_id = categories['plus'][l_category][m_category]['id']
+                else:
+                    is_income = 0
+                    l_c_id = categories['minus'][l_category]['id']
+                    m_c_id = categories['minus'][l_category][m_category]['id']
+                ac_id = accounts[account]
+                post_data = {
+                    'user_asset_act[is_transfer]': 0,
+                    'user_asset_act[is_income]': is_income,
+                    'user_asset_act[updated_at]': date,
+                    'user_asset_act[recurring_flag]': 0,
+                    'user_asset_act[amount]': abs(price),
+                    'user_asset_act[sub_account_id_hash]': ac_id,
+                    'user_asset_act[large_category_id]': l_c_id,
+                    'user_asset_act[middle_category_id]': m_c_id,
+                    'user_asset_act[content]': memo,
+                    'commit': '保存する',
+                }
+        except BaseException:
+            return False
         result = self._session.post(
             'https://moneyforward.com/cf/create',
             data=post_data,
