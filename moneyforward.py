@@ -30,18 +30,18 @@ class MoneyForwardABC(metaclass=ABCMeta):
             print('LOGIN FAIL')
             return False
 
-    def update(self):
-        print('update...')
-        if self._inner_update():
-            print('UPDATE SUCCESS')
+    def fetch(self):
+        print('fetch...')
+        if self._inner_fetch():
+            print('FETCH SUCCESS')
             return True
         else:
-            print('UPDATE FAIL')
+            print('FETCH FAIL')
             return False
 
-    def get(self, year, month):
-        print('get...')
-        ret = self._inner_get(year, month)
+    def select(self, year, month):
+        print('select...')
+        ret = self._inner_select(year, month)
         return self._convert_mfdata(ret, year)
 
     @abstractmethod
@@ -49,11 +49,11 @@ class MoneyForwardABC(metaclass=ABCMeta):
         pass
 
     @abstractmethod
-    def _inner_update(self):
+    def _inner_fetch(self):
         pass
 
     @abstractmethod
-    def _inner_get(self, year, month):
+    def _inner_select(self, year, month):
         pass
 
     def _convert_mfdata(self, dataset, year):
@@ -135,7 +135,7 @@ class MoneyForwardSelenium(MoneyForwardABC):
         except TimeoutException:
             return False
 
-    def _inner_update(self):
+    def _inner_fetch(self):
         try:
             # get update button
             updates = self._driver.find_elements(
@@ -155,7 +155,7 @@ class MoneyForwardSelenium(MoneyForwardABC):
         except TimeoutException:
             return False
 
-    def _inner_get(self, year, month):
+    def _inner_select(self, year, month):
         try:
             actions = ActionChains(self._driver)
             if self._driver.current_url != 'https://moneyforward.com/cf':
@@ -261,7 +261,7 @@ class MoneyForwardRequests(MoneyForwardABC):
         else:
             return False
 
-    def _inner_update(self):
+    def _inner_fetch(self):
         result = self._session.get('https://moneyforward.com')
         soup = BS(result.content, 'html.parser')
         urls = soup.find_all('a', {
@@ -294,7 +294,7 @@ class MoneyForwardRequests(MoneyForwardABC):
                 return True
         return False
 
-    def _inner_get(self, year, month):
+    def _inner_select(self, year, month):
         result = self._session.get('https://moneyforward.com')
         soup = BS(result.content, 'html.parser')
         token = soup.find('meta', {'name': 'csrf-token'})['content']

@@ -9,7 +9,7 @@ import datetime
 
 
 def run(year, month, dict, obj):
-    dict[str(year) + '/' + str(month)] = obj.get(year, month)
+    dict[str(year) + '/' + str(month)] = obj.select(year, month)
 
 
 dt_now_jst = datetime.datetime.now(
@@ -35,7 +35,7 @@ if (not(mf.login())):
     del mf
     sys.exit()
 if args.update:
-    mf.update()
+    mf.fetch()
 ss = SpreadSheet(
     os.environ['SPREADSHEET_KEYFILE'], os.environ['SPREADSHEET_ID']
 )
@@ -76,6 +76,6 @@ for (year, month) in ym_list:
                 [', '.join(map(str, i)) for i in mfdata],
                 [', '.join(map(str, i)) for i in sdata]
             ))
-        ss.update(year, month, mfdata)
+        ss.upsert(year, month, mfdata)
 del mf
 del ss

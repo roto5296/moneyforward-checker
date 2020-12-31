@@ -15,7 +15,7 @@ class SpreadSheet:
         gc = gspread.authorize(credentials)
         self._wb = gc.open_by_key(sheet_id)
 
-    def get(self, year, month):
+    def select(self, year, month):
         sname = str(year - 2000).zfill(2) + str(month).zfill(2)
         try:
             ws = self._wb.worksheet(sname)
@@ -32,7 +32,7 @@ class SpreadSheet:
             ret.append(tmp)
         return ret
 
-    def update(self, year, month, data):
+    def upsert(self, year, month, data):
         month_b = 12 if month == 1 else month - 1
         year_b = year - 1 if month == 1 else year
         wss = self._wb.worksheets()
