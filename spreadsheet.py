@@ -21,18 +21,13 @@ class SpreadSheet:
             ws = self._wb.worksheet(sname)
         except gspread.exceptions.WorksheetNotFound:
             return []
-        ws_data_list = ws.range('A3:H202')
-        ret = []
-        for i in range(200):
-            if ws_data_list[i * 8].value == '':
-                break
-            tmp = [ws_data_list[j + i * 8].value for j in range(8)]
+        ret = ws.get_all_values()[2:]
+        for tmp in ret:
             tmp[0] = int(tmp[0])  # transaction id
             tmp[3] = int(tmp[3])  # price
-            ret.append(tmp)
         return ret
 
-    def upsert(self, year, month, data):
+    def merge(self, year, month, data, max_num=200):
         month_b = 12 if month == 1 else month - 1
         year_b = year - 1 if month == 1 else year
         wss = self._wb.worksheets()
@@ -49,6 +44,4 @@ class SpreadSheet:
                 insert_sheet_index=wsb_index,
                 new_sheet_name=sname
             )
-        ws.update(
-            'A3:H202', data + [[''] * 8] * (200 - len(data))
-        )
+        ws.update('A3', data + [[''] * 8] * (max_num - len(data)))

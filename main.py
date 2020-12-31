@@ -76,6 +76,6 @@ for (year, month) in ym_list:
                 [', '.join(map(str, i)) for i in mfdata],
                 [', '.join(map(str, i)) for i in sdata]
             ))
-        ss.upsert(year, month, mfdata)
+        ss.merge(year, month, mfdata)
 del mf
 del ss
