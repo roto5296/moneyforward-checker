@@ -8,8 +8,36 @@ import argparse
 import datetime
 
 
-def run(year, month, dict, obj):
+def run(year, month, dict, obj, is_selenium=False, lock=None):
+    if is_selenium:
+        lock.acquire()
     dict[str(year) + '/' + str(month)] = obj.select(year, month)
+    if is_selenium:
+        lock.release()
+
+
+def run2(year, month, t1, t2, mf_dict, ss_dict, ss, lock):
+    t1.join()
+    t2.join()
+    lock.acquire()
+    print(str(year) + '/' + str(month))
+    mfdata = mf_dict[str(year) + '/' + str(month)]
+    sdata = ss_dict[str(year) + '/' + str(month)]
+    if sdata == mfdata:
+        print('SAME')
+    elif len(mfdata) == 0:
+        print('MoneyForward No Data')
+    else:
+        print('There is diff\nUpdate sheet')
+        fname = 'diff' + str(month) + '.html'
+        d = difflib.HtmlDiff()
+        with open(fname, mode='w') as f:
+            f.write(d.make_file(
+                [', '.join(map(str, i)) for i in mfdata],
+                [', '.join(map(str, i)) for i in sdata]
+            ))
+        ss.merge(year, month, mfdata)
+    lock.release()
 
 
 dt_now_jst = datetime.datetime.now(
@@ -41,41 +69,21 @@ ss = SpreadSheet(
 )
 mfdata_dict = {}
 ssdata_dict = {}
+lock1 = threading.Lock()
+lock2 = threading.Lock()
 ts1 = [threading.Thread(target=run, args=(year, month, ssdata_dict, ss))
        for (year, month) in ym_list]
-for t in ts1:
-    t.start()
-if args.selenium:
-    for (year, month) in ym_list:
-        run(year, month, mfdata_dict, mf)
-else:
-    ts2 = [threading.Thread(target=run, args=(
-        year, month, mfdata_dict, mf)
-    ) for (year, month) in ym_list]
-    for t in ts2:
-        t.start()
-for t in ts1:
-    t.join()
-if not args.selenium:
-    for t in ts2:
-        t.join()
-for (year, month) in ym_list:
-    print(str(year) + '/' + str(month))
-    mfdata = mfdata_dict[str(year) + '/' + str(month)]
-    sdata = ssdata_dict[str(year) + '/' + str(month)]
-    if sdata == mfdata:
-        print('SAME')
-    elif len(mfdata) == 0:
-        print('MoneyForward No Data')
-    else:
-        print('There is diff\nUpdate sheet')
-        fname = 'diff' + str(month) + '.html'
-        d = difflib.HtmlDiff()
-        with open(fname, mode='w') as f:
-            f.write(d.make_file(
-                [', '.join(map(str, i)) for i in mfdata],
-                [', '.join(map(str, i)) for i in sdata]
-            ))
-        ss.merge(year, month, mfdata)
+ts2 = [threading.Thread(
+    target=run,
+    args=(year, month, mfdata_dict, mf, args.selenium, lock1)
+) for (year, month) in ym_list]
+ts3 = [threading.Thread(
+    target=run2,
+    args=(year, month, t1, t2, mfdata_dict, ssdata_dict, ss, lock2)
+) for (year, month), t1, t2 in zip(ym_list, ts1, ts2)]
+for t1, t2, t3 in zip(ts1, ts2, ts3):
+    t1.start()
+    t2.start()
+    t3.start()
 del mf
 del ss
