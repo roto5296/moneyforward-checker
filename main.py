@@ -7,12 +7,16 @@ import sys
 import threading
 
 from mfscraping import MFScraper
+from mfscraping.exceptions import DataDoesNotExist, FetchTimeout, LoginFailed
 
 from spreadsheet import SpreadSheet
 
 
 def run(year, month, dict, obj):
-    dict[str(year) + "/" + str(month)] = obj.get(year, month)
+    try:
+        dict[str(year) + "/" + str(month)] = obj.get(year, month)
+    except DataDoesNotExist:
+        dict[str(year) + "/" + str(month)] = []
 
 
 def run2(year, month, t1, t2, mf_dict, ss_dict, ss, lock):
@@ -50,30 +54,30 @@ parser.add_argument("--year", type=int, default=dt_now_jst.year)
 parser.add_argument("--month", type=int, default=dt_now_jst.month)
 parser.add_argument("--period", type=int, default=6)
 args = parser.parse_args()
-period = min(args.period, 12)
 ym_list = [
     (
         args.year if args.month - i > 0 else args.year - 1,
         args.month - i if args.month - i > 0 else args.month + 12 - i,
     )
-    for i in range(period)
+    for i in range(args.period)
 ]
 
 
 mf = MFScraper(**json.loads(os.environ["MONEYFORWARD_KEYFILE"]))
 print("login...")
-if mf.login():
+try:
+    mf.login()
     print("LOGIN success")
-else:
+except LoginFailed:
     print("LOGIN fail")
-    del mf
     sys.exit()
 if args.update:
     print("update...")
-    if mf.fetch():
+    try:
+        mf.fetch()
         print("UPDATE success")
-    else:
-        print("UPDATE fail or timeout")
+    except FetchTimeout:
+        print("UPDATE timeout")
 ss = SpreadSheet(os.environ["SPREADSHEET_KEYFILE"], os.environ["SPREADSHEET_ID"])
 mfdata_dict = {}
 ssdata_dict = {}
@@ -92,5 +96,3 @@ for t1, t2, t3 in zip(ts1, ts2, ts3):
     t1.start()
     t2.start()
     t3.start()
-del mf
-del ss

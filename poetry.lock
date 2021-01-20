@@ -174,7 +174,7 @@ requests = "^2.25.1"
 type = "git"
 url = "https://github.com/roto5296/moneyforward-scraping-py.git"
 reference = "master"
-resolved_reference = "060638403cfed4c45343118165b019d7ff397aec"
+resolved_reference = "ed9a063d842e4ae9f2fc69cefe2d2eac37cd085b"
 
 [[package]]
 name = "mypy-extensions"
