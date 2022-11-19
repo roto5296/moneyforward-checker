@@ -16,18 +16,16 @@ class SpreadSheet:
     def dict2ssformat(data):
         convert_data = []
         for d in data:
-            amount = abs(d["amount"])
-            is_transfer = d["account_from"] and d["account_to"]
             convert_data.append(
                 [
                     d["transaction_id"],
                     d["date"].strftime("%Y-%m-%d"),
                     d["content"],
-                    amount if d["account_to"] else -amount,
-                    d["account_from"] + "," + d["account_to"]
-                    if is_transfer
-                    else d["account_from"] or d["account_to"],
-                    "振替" if is_transfer else d["lcategory"],
+                    d["amount"],
+                    d["account"][0] + "," + d["account"][1]
+                    if d["is_transfer"]
+                    else d["account"],
+                    "振替" if d["is_transfer"] else d["lcategory"],
                     d["mcategory"],
                     d["memo"],
                 ]
@@ -38,7 +36,6 @@ class SpreadSheet:
     def ssformat2dict(data):
         convert_data = []
         for d in data:
-            amount = int(d[3])
             accounts = d[4].split(",")
             is_transfer = d[5] == "振替"
             convert_data.append(
@@ -46,20 +43,14 @@ class SpreadSheet:
                     "transaction_id": int(d[0]),
                     "date": datetime.date(*map(int, d[1].split("-"))),
                     "content": d[2],
-                    "amount": abs(amount),
-                    "account_from": accounts[0]
+                    "amount": int(d[3]),
+                    "account": accounts
                     if is_transfer
-                    else accounts[0]
-                    if amount <= 0
-                    else None,
-                    "account_to": accounts[1]
-                    if is_transfer
-                    else accounts[0]
-                    if amount > 0
-                    else None,
+                    else accounts[0],
                     "lcategory": "" if is_transfer else d[5],
                     "mcategory": d[6],
                     "memo": d[7],
+                    "is_transfer": is_transfer,
                 }
             )
         return convert_data

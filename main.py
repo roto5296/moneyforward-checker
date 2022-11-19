@@ -19,7 +19,7 @@ def run(year, month, dict, obj):
         dict[str(year) + "/" + str(month)] = []
 
 
-def run2(year, month, t1, t2, mf_dict, ss_dict, ss, lock):
+def run2(year, month, t1, t2, mf_dict, ss_dict, ss, lock, is_lambda):
     t1.join()
     t2.join()
     lock.acquire()
@@ -32,67 +32,87 @@ def run2(year, month, t1, t2, mf_dict, ss_dict, ss, lock):
         print("MoneyForward No Data")
     else:
         print("There is diff\nUpdate sheet")
-        fname = "diff" + str(month) + ".html"
-        d = difflib.HtmlDiff()
-        with open(fname, mode="w") as f:
-            f.write(
-                d.make_file(
-                    [", ".join(map(str, i)) for i in SpreadSheet.dict2ssformat(mfdata)],
-                    [", ".join(map(str, i)) for i in SpreadSheet.dict2ssformat(sdata)],
+        if not is_lambda:
+            fname = "diff" + str(month) + ".html"
+            d = difflib.HtmlDiff()
+            with open(fname, mode="w") as f:
+                f.write(
+                    d.make_file(
+                        [", ".join(map(str, i)) for i in SpreadSheet.dict2ssformat(mfdata)],
+                        [", ".join(map(str, i)) for i in SpreadSheet.dict2ssformat(sdata)],
+                    )
                 )
-            )
         ss.merge(year, month, mfdata)
     lock.release()
 
 
-SpreadSheet.dict2ssformat
-
-dt_now_jst = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=9)))
-parser = argparse.ArgumentParser()
-parser.add_argument("--update", action="store_true")
-parser.add_argument("--year", type=int, default=dt_now_jst.year)
-parser.add_argument("--month", type=int, default=dt_now_jst.month)
-parser.add_argument("--period", type=int, default=6)
-args = parser.parse_args()
-ym_list = [
-    (
-        args.year if args.month - i > 0 else args.year - 1,
-        args.month - i if args.month - i > 0 else args.month + 12 - i,
-    )
-    for i in range(args.period)
-]
-
-
-mf = MFScraper(**json.loads(os.environ["MONEYFORWARD_KEYFILE"]))
-print("login...")
-try:
-    mf.login()
-    print("LOGIN success")
-except LoginFailed:
-    print("LOGIN fail")
-    sys.exit()
-if args.update:
-    print("update...")
+def main(ym_list, is_update, is_lambda):
+    mf = MFScraper(**json.loads(os.environ["MONEYFORWARD_KEYFILE"]))
+    print("login...")
     try:
-        mf.fetch()
-        print("UPDATE success")
-    except FetchTimeout:
-        print("UPDATE timeout")
-ss = SpreadSheet(os.environ["SPREADSHEET_KEYFILE"], os.environ["SPREADSHEET_ID"])
-mfdata_dict = {}
-ssdata_dict = {}
-lock = threading.Lock()
-ts1 = [
-    threading.Thread(target=run, args=(year, month, ssdata_dict, ss)) for (year, month) in ym_list
-]
-ts2 = [
-    threading.Thread(target=run, args=(year, month, mfdata_dict, mf)) for (year, month) in ym_list
-]
-ts3 = [
-    threading.Thread(target=run2, args=(year, month, t1, t2, mfdata_dict, ssdata_dict, ss, lock))
-    for (year, month), t1, t2 in zip(ym_list, ts1, ts2)
-]
-for t1, t2, t3 in zip(ts1, ts2, ts3):
-    t1.start()
-    t2.start()
-    t3.start()
+        mf.login()
+        print("LOGIN success")
+    except LoginFailed:
+        print("LOGIN fail")
+        sys.exit()
+    if is_update:
+        print("update...")
+        try:
+            mf.fetch()
+            print("UPDATE success")
+        except FetchTimeout:
+            print("UPDATE timeout")
+    ss = SpreadSheet(os.environ["SPREADSHEET_KEYFILE"], os.environ["SPREADSHEET_ID"])
+    mfdata_dict = {}
+    ssdata_dict = {}
+    lock = threading.Lock()
+    ts1 = [
+        threading.Thread(target=run, args=(year, month, ssdata_dict, ss))
+        for (year, month) in ym_list
+    ]
+    ts2 = [
+        threading.Thread(target=run, args=(year, month, mfdata_dict, mf))
+        for (year, month) in ym_list
+    ]
+    ts3 = [
+        threading.Thread(
+            target=run2, args=(year, month, t1, t2, mfdata_dict, ssdata_dict, ss, lock, is_lambda)
+        )
+        for (year, month), t1, t2 in zip(ym_list, ts1, ts2)
+    ]
+    for t1, t2, t3 in zip(ts1, ts2, ts3):
+        t1.start()
+        t2.start()
+        t3.start()
+    for t3 in ts3:
+        t3.join()
+
+
+def lambda_handler(event, context):
+    dt_now_jst = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=9)))
+    ym_list = [
+        (
+            dt_now_jst.year if dt_now_jst.month - i > 0 else dt_now_jst.year - 1,
+            dt_now_jst.month - i if dt_now_jst.month - i > 0 else dt_now_jst.month + 12 - i,
+        )
+        for i in range(6)
+    ]
+    main(ym_list, False, True)
+
+
+if __name__ == "__main__":
+    dt_now_jst = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=9)))
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--update", action="store_true")
+    parser.add_argument("--year", type=int, default=dt_now_jst.year)
+    parser.add_argument("--month", type=int, default=dt_now_jst.month)
+    parser.add_argument("--period", type=int, default=6)
+    args = parser.parse_args()
+    ym_list = [
+        (
+            args.year if args.month - i > 0 else args.year - 1,
+            args.month - i if args.month - i > 0 else args.month + 12 - i,
+        )
+        for i in range(args.period)
+    ]
+    main(ym_list, args.update, False)

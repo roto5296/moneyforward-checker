@@ -11,8 +11,8 @@ oauth2client = "^4.1.3"
 mfscraping = {git = "https://github.com/roto5296/moneyforward-scraping-py.git"}
 
 [tool.poetry.dev-dependencies]
-flake8 = "^3.8.4"
-black = "^20.8b1"
+flake8 = "*"
+black = "*"
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]
