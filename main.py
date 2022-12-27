@@ -1,56 +1,30 @@
 import argparse
 import datetime
-import difflib
 import json
 import os
 import sys
-import threading
+from concurrent.futures import ThreadPoolExecutor
 
 from mfscraping import MFScraper
-from mfscraping.exceptions import DataDoesNotExist, FetchTimeout, LoginFailed
+from mfscraping.exceptions import FetchTimeout, LoginFailed
 
+import mfsync
+import sssync
 from spreadsheet import SpreadSheet
 
 
-def run(year, month, dict, obj):
-    try:
-        dict[str(year) + "/" + str(month)] = obj.get(year, month)
-    except DataDoesNotExist:
-        dict[str(year) + "/" + str(month)] = []
-
-
-def run2(year, month, t1, t2, mf_dict, ss_dict, ss, lock, is_lambda):
-    t1.join()
-    t2.join()
-    lock.acquire()
-    print(str(year) + "/" + str(month))
-    mfdata = mf_dict[str(year) + "/" + str(month)]
-    sdata = ss_dict[str(year) + "/" + str(month)]
-    if sdata == mfdata:
-        print("SAME")
-    elif len(mfdata) == 0:
-        print("MoneyForward No Data")
-    else:
-        print("There is diff\nUpdate sheet")
-        if not is_lambda:
-            fname = "diff" + str(month) + ".html"
-            d = difflib.HtmlDiff()
-            with open(fname, mode="w") as f:
-                f.write(
-                    d.make_file(
-                        [", ".join(map(str, i)) for i in SpreadSheet.dict2ssformat(mfdata)],
-                        [", ".join(map(str, i)) for i in SpreadSheet.dict2ssformat(sdata)],
-                    )
-                )
-        ss.merge(year, month, mfdata)
-    lock.release()
-
-
-def main(ym_list, is_update, is_lambda):
-    mf = MFScraper(**json.loads(os.environ["MONEYFORWARD_KEYFILE"]))
+def main(ym_list, is_update, is_mfsync, is_sssync, is_lambda, update_maxtime):
+    mf_main = MFScraper(**json.loads(os.environ["MONEYFORWARD_KEYFILE"])["main"])
+    mf_subs = list(
+        map(lambda x: MFScraper(**x), json.loads(os.environ["MONEYFORWARD_KEYFILE"])["sub"])
+    )
     print("login...")
     try:
-        mf.login()
+        with ThreadPoolExecutor() as executor:
+            ret = executor.submit(mf_main.login)
+            rets = executor.map(lambda x: x.login(), mf_subs)
+            ret.result()
+            list(rets)
         print("LOGIN success")
     except LoginFailed:
         print("LOGIN fail")
@@ -58,34 +32,35 @@ def main(ym_list, is_update, is_lambda):
     if is_update:
         print("update...")
         try:
-            mf.fetch()
+            with ThreadPoolExecutor() as executor:
+                ret = executor.submit(mf_main.fetch, maxwaiting=update_maxtime)
+                rets = executor.map(lambda x: x.fetch(maxwaiting=update_maxtime), mf_subs)
+                ret.result()
+                list(rets)
             print("UPDATE success")
         except FetchTimeout:
             print("UPDATE timeout")
-    ss = SpreadSheet(os.environ["SPREADSHEET_KEYFILE"], os.environ["SPREADSHEET_ID"])
-    mfdata_dict = {}
-    ssdata_dict = {}
-    lock = threading.Lock()
-    ts1 = [
-        threading.Thread(target=run, args=(year, month, ssdata_dict, ss))
-        for (year, month) in ym_list
-    ]
-    ts2 = [
-        threading.Thread(target=run, args=(year, month, mfdata_dict, mf))
-        for (year, month) in ym_list
-    ]
-    ts3 = [
-        threading.Thread(
-            target=run2, args=(year, month, t1, t2, mfdata_dict, ssdata_dict, ss, lock, is_lambda)
-        )
-        for (year, month), t1, t2 in zip(ym_list, ts1, ts2)
-    ]
-    for t1, t2, t3 in zip(ts1, ts2, ts3):
-        t1.start()
-        t2.start()
-        t3.start()
-    for t3 in ts3:
-        t3.join()
+    if is_mfsync:
+        print("mfsync...")
+        aclist = json.loads(os.environ["ACLIST"])
+        auto_transfer_list = json.loads(os.environ["AUTO_TRANSFER_LIST"])
+        with ThreadPoolExecutor() as executor:
+            rets = []
+            for (year, month) in ym_list:
+                rets.append(
+                    executor.submit(
+                        mfsync.run, year, month, mf_main, mf_subs, aclist, auto_transfer_list
+                    )
+                )
+            [ret.result() for ret in rets]
+    if is_sssync:
+        print("sssync...")
+        ss = SpreadSheet(os.environ["SPREADSHEET_KEYFILE"], os.environ["SPREADSHEET_ID"])
+        with ThreadPoolExecutor() as executor:
+            rets = []
+            for (year, month) in ym_list:
+                rets.append(executor.submit(sssync.run, year, month, mf_main, ss, is_lambda))
+            [ret.result() for ret in rets]
 
 
 def lambda_handler(event, context):
@@ -97,13 +72,14 @@ def lambda_handler(event, context):
         )
         for i in range(6)
     ]
-    main(ym_list, False, True)
+    main(ym_list, event["update"], event["mfsync"], event["sssync"], True, 0)
 
 
 if __name__ == "__main__":
     dt_now_jst = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=9)))
     parser = argparse.ArgumentParser()
     parser.add_argument("--update", action="store_true")
+    parser.add_argument("--mfsync", action="store_true")
     parser.add_argument("--year", type=int, default=dt_now_jst.year)
     parser.add_argument("--month", type=int, default=dt_now_jst.month)
     parser.add_argument("--period", type=int, default=6)
@@ -115,4 +91,4 @@ if __name__ == "__main__":
         )
         for i in range(args.period)
     ]
-    main(ym_list, args.update, False)
+    main(ym_list, args.update, args.mfsync, True, False, 300)
