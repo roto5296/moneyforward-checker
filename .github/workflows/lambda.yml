@@ -1,0 +1,52 @@
+name: AWS Lambda Deploy
+on:
+  push:
+    branches:
+      - master
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - name: checkout
+        uses: actions/checkout@v3
+
+      - name: configure-aws-credentials
+        uses: aws-actions/configure-aws-credentials@master
+        with:
+          aws-region: ${{ secrets.AWS_REGION }}
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          role-session-name: GitHubActions
+
+      - name: get-caller-identity is allowed to run on role.
+        run: aws sts get-caller-identity
+
+      - name: setup-python
+        uses: actions/setup-python@v3
+        with:
+          python-version: "3.8"
+
+      - name: Install poetry
+        run: |
+          pip3 install 'poetry>=1.3,<1.4'
+
+      - name: Poetry Version
+        run: |
+          poetry --version
+
+      - name: Poetry Export
+        run: |
+          poetry export --without-hashes --output requirements.txt
+
+      - name: package install
+        run: |
+          pip3 install -r requirements.txt -t .
+
+      - name: lambda update
+        run: |
+          pip3 install awscli
+          zip -r package.zip ./*
+          aws lambda update-function-code --function-name mf --zip-file fileb://package.zip --publish
