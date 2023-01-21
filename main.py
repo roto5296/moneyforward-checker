@@ -13,7 +13,7 @@ import sssync
 from spreadsheet import SpreadSheet
 
 
-def main(ym_list, is_update, is_mfsync, is_sssync, is_lambda, update_maxtime):
+def main(ym_list, is_update, is_mfsync, is_sssync, is_lambda, update_maxtime, aclist=None):
     mf_main = MFScraper(**json.loads(os.environ["MONEYFORWARD_KEYFILE"])["main"])
     mf_subs = list(
         map(lambda x: MFScraper(**x), json.loads(os.environ["MONEYFORWARD_KEYFILE"])["sub"])
@@ -42,7 +42,8 @@ def main(ym_list, is_update, is_mfsync, is_sssync, is_lambda, update_maxtime):
             print("UPDATE timeout")
     if is_mfsync:
         print("mfsync...")
-        aclist = json.loads(os.environ["ACLIST"])
+        if not isinstance(aclist, list):
+            aclist = json.loads(os.environ["ACLIST"])
         auto_transfer_list = json.loads(os.environ["AUTO_TRANSFER_LIST"])
         with ThreadPoolExecutor() as executor:
             rets = []
@@ -70,9 +71,9 @@ def lambda_handler(event, context):
             dt_now_jst.year if dt_now_jst.month - i > 0 else dt_now_jst.year - 1,
             dt_now_jst.month - i if dt_now_jst.month - i > 0 else dt_now_jst.month + 12 - i,
         )
-        for i in range(6)
+        for i in range(event.get("period", 6))
     ]
-    main(ym_list, event["update"], event["mfsync"], event["sssync"], True, 0)
+    main(ym_list, event["update"], event["mfsync"], event["sssync"], True, 0, event.get("aclist"))
 
 
 if __name__ == "__main__":
