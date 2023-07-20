@@ -7,15 +7,11 @@ authors = ["roto5296 <hikun5296@gmail.com>"]
 [tool.poetry.dependencies]
 python = "^3.8"
 gspread = "*"
-mfscraping = {git = "https://github.com/roto5296/moneyforward-scraping-py.git#master"}
+mfscraping = {git = "https://github.com/roto5296/moneyforward-scraping-py.git", branch = "master"}
 
 [tool.poetry.dev-dependencies]
 flake8 = "*"
-black = "*"
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]
 build-backend = "poetry.core.masonry.api"
-
-[tool.black]
-line_length = 99
