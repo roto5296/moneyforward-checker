@@ -21,7 +21,7 @@ def run2(mmdl, msdl, auto_transfer_list):
             if msd["memo"] != "" and mmd["transaction_id"] == int(msd["memo"]):
                 if not mmd["is_transfer"]:
                     if (
-                        mmd["content"] != msd["content"]
+                        mmd["content"].replace("’", "'") != msd["content"].replace("’", "'")
                         or mmd["amount"] != msd["amount"]
                         or mmd["date"] != msd["date"]
                     ):
@@ -39,8 +39,8 @@ def run2(mmdl, msdl, auto_transfer_list):
     for mmd in mmdl[:]:
         for msd in msdl[:]:
             if (
-                mmd["content"] == msd["content"]
-                and mmd["amount"] == msd["amount"]
+                mmd["content"].replace("’", "'") == msd["content"].replace("’", "'")
+                and abs(mmd["amount"]) == abs(msd["amount"])
                 and mmd["date"] == msd["date"]
             ):
                 sub_update_list.append(
@@ -153,7 +153,7 @@ def run(year, month, mf_main, mf_subs, account_lists, auto_transfer_list):
             + " sub update:"
             + str(reduce(lambda a, b: a + len(b), sub_update_all_list, 0))
         )
-        for (main_update_list, main_delete_list, sub_update_list, mf_sub) in zip(
+        for main_update_list, main_delete_list, sub_update_list, mf_sub in zip(
             main_update_all_list, main_delete_all_list, sub_update_all_list, mf_subs
         ):
             rets1 = executor.map(lambda x: mf_main.update(**x), main_update_list)
@@ -166,15 +166,15 @@ def run(year, month, mf_main, mf_subs, account_lists, auto_transfer_list):
         list(rets3)
     is_add = False
     for main_add_list in main_add_all_list:
-        for (id, data) in reversed(main_add_list):
+        for id, data in reversed(main_add_list):
             mf_main.save(**data)
             is_add = True
     if is_add:
         new_data = mf_main.get(year, month)
         new_data.sort(key=lambda x: x["transaction_id"], reverse=True)
         with ThreadPoolExecutor() as executor:
-            for (mf_sub, main_add_list) in zip(reversed(mf_subs), reversed(main_add_all_list)):
-                for (i, (id, data)) in enumerate(main_add_list):
+            for mf_sub, main_add_list in zip(reversed(mf_subs), reversed(main_add_all_list)):
+                for i, (id, data) in enumerate(main_add_list):
                     executor.submit(
                         lambda a, b: mf_sub.update(
                             a, new_data[b]["amount"], memo=new_data[b]["transaction_id"]
