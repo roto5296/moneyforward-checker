@@ -1,17 +1,20 @@
-from concurrent.futures import ThreadPoolExecutor
-from functools import reduce
+import asyncio
 
 from mfscraping.exceptions import DataDoesNotExist
 
 
-def getdata(year, month, obj):
+async def get_data(year, month, obj):
     try:
-        return obj.get(year, month)
+        return await obj.get(year, month)
     except DataDoesNotExist:
         return []
 
 
-def run2(mmdl, msdl):
+async def match_data(ac, t_main, t_sub):
+    tmp = await t_main
+    tmp2 = await t_sub
+    mmdl = list(ac_filter(tmp, ac))
+    msdl = list(ac_filter(tmp2, ac))
     main_update_list = []
     main_delete_list = []
     main_add_list = []
@@ -91,97 +94,112 @@ def ac_filter(data, ac):
     )
 
 
-def run3(year, month, obj, data):
+async def transfer_disable(year, month, obj, t_sub):
+    data = await t_sub
     is_transfer = False
-    with ThreadPoolExecutor() as executor:
-        for d in data:
-            if d["is_transfer"]:
-                is_transfer = True
-                executor.submit(obj.disable_transfer, d["transaction_id"])
+    tlist = []
+    for d in data:
+        if d["is_transfer"]:
+            is_transfer = True
+            tlist.append(obj.disable_transfer(d["transaction_id"]))
     if is_transfer:
-        return getdata(year, month, obj)
+        await asyncio.gather(*tlist)
+        return await get_data(year, month, obj)
     else:
         return data
 
 
-def run(year, month, mf_main, mf_subs, account_lists, auto_transfer_list):
-    print(str(year) + "/" + str(month) + " start")
-    mfmaindata = []
-    mfsubdata_ = []
-    with ThreadPoolExecutor() as executor:
-        f_main = executor.submit(getdata, year, month, mf_main)
-        f_subs = []
-        f_subs2 = []
-        for mf_sub in mf_subs:
-            f_subs.append(executor.submit(getdata, year, month, mf_sub))
-        mfmaindata = f_main.result()
-        for mf_sub, f_sub in zip(mf_subs, f_subs):
-            f_subs2.append(executor.submit(run3, year, month, mf_sub, f_sub.result()))
-        for f_sub in f_subs2:
-            mfsubdata_.append(f_sub.result())
-    main_add_all_list = []
-    with ThreadPoolExecutor() as executor:
-        rets_list = []
-        for account_list, mfsubdata in zip(account_lists, mfsubdata_):
-            rets_list.append(
-                executor.map(
-                    run2,
-                    [list(ac_filter(mfmaindata, ac)) for ac in account_list],
-                    [list(ac_filter(mfsubdata, ac)) for ac in account_list],
-                )
-            )
-        rets_list = list(rets_list)
-        main_update_all_list = [[y for x in rets for y in x[0]] for rets in rets_list]
-        main_delete_all_list = [[y for x in rets for y in x[1]] for rets in rets_list]
-        main_add_all_list = [[y for x in rets for y in x[2]] for rets in rets_list]
-        sub_update_all_list = [[y for x in rets for y in x[3]] for rets in rets_list]
-        print(
-            str(year)
-            + "/"
-            + str(month)
-            + " main update:"
-            + str(reduce(lambda a, b: a + len(b), main_update_all_list, 0))
-            + " main delete:"
-            + str(reduce(lambda a, b: a + len(b), main_delete_all_list, 0))
-            + " main add:"
-            + str(reduce(lambda a, b: a + len(b), main_add_all_list, 0))
-            + " sub update:"
-            + str(reduce(lambda a, b: a + len(b), sub_update_all_list, 0))
-        )
-        for main_update_list, main_delete_list, sub_update_list, mf_sub in zip(
-            main_update_all_list, main_delete_all_list, sub_update_all_list, mf_subs
-        ):
-            rets1 = executor.map(lambda x: mf_main.update(**x), main_update_list)
-            rets2 = executor.map(lambda x: mf_main.delete(**x), main_delete_list)
-            rets3 = executor.map(
-                lambda x, y: y.update(**x),
-                sub_update_list,
-                [mf_sub] * len(sub_update_list),
-            )
-        list(rets1)
-        list(rets2)
-        list(rets3)
+async def add_data(year, month, mf_main, mf_subs, t_match_data):
+    rets_list = []
+    for tmp in t_match_data:
+        rets_list.append(await asyncio.gather(*tmp))
+    main_add_all_list = [[y for x in rets for y in x[2]] for rets in rets_list]
     for main_add_list in main_add_all_list:
         for id, data in reversed(main_add_list):
-            mf_main.save(**data)
-    new_data = mf_main.get(year, month)
+            await mf_main.save(**data)
+    new_data = await mf_main.get(year, month)
     new_data.sort(key=lambda x: x["transaction_id"], reverse=True)
-    with ThreadPoolExecutor() as executor:
-        for mf_sub, main_add_list in zip(reversed(mf_subs), reversed(main_add_all_list)):
-            for i, (id, data) in enumerate(main_add_list):
-                executor.submit(
-                    lambda a, b: mf_sub.update(
-                        a, new_data[b]["amount"], memo=new_data[b]["transaction_id"]
-                    ),
-                    id,
-                    i,
-                )
-    auto_transfer_run(year, month, mf_main, new_data, auto_transfer_list)
+    func = []
+    for mf_sub, main_add_list in zip(reversed(mf_subs), reversed(main_add_all_list)):
+        for i, (id, data) in enumerate(main_add_list):
+            func.append(
+                mf_sub.update(id, new_data[i]["amount"], memo=new_data[i]["transaction_id"])
+            )
+    await asyncio.gather(*func)
+    return new_data
+
+
+async def update_data(mf_main, t_data):
+    data = await t_data
+    await asyncio.gather(*[mf_main.update(**x) for x in data[0]])
+
+
+async def delete_data(mf_main, t_data):
+    data = await t_data
+    await asyncio.gather(*[mf_main.delete(**x) for x in data[1]])
+
+
+async def update_sub_data(mf_sub, t_data):
+    data = await t_data
+    await asyncio.gather(*[mf_sub.update(**x) for x in data[3]])
+
+
+async def run(year, month, mf_main, mf_subs, account_lists, auto_transfer_list):
+    print(str(year) + "/" + str(month) + " start")
+    t_main = asyncio.create_task(get_data(year, month, mf_main))
+    t_subs = [asyncio.create_task(get_data(year, month, mf_sub)) for mf_sub in mf_subs]
+    t_subs2 = [
+        asyncio.create_task(transfer_disable(year, month, mf_sub, t_sub))
+        for mf_sub, t_sub in zip(mf_subs, t_subs)
+    ]
+    t_match_data = [
+        [asyncio.create_task(match_data(ac, t_main, t_sub)) for ac in account_list]
+        for account_list, t_sub in zip(account_lists, t_subs2)
+    ]
+    t_update_data = [
+        [asyncio.create_task(update_data(mf_main, x)) for x in tmp] for tmp in t_match_data
+    ]
+    t_delete_data = [
+        [asyncio.create_task(delete_data(mf_main, x)) for x in tmp] for tmp in t_match_data
+    ]
+    t_sub_update_data = [
+        [asyncio.create_task(update_sub_data(mf_sub, x)) for x in tmp]
+        for mf_sub, tmp in zip(mf_subs, t_match_data)
+    ]
+    new_data = await add_data(year, month, mf_main, mf_subs, t_match_data)
+    for tmp in t_update_data:
+        await asyncio.gather(*tmp)
+    for tmp in t_delete_data:
+        await asyncio.gather(*tmp)
+    for tmp in t_sub_update_data:
+        await asyncio.gather(*tmp)
+    rets_list = []
+    for t in t_match_data:
+        rets_list.append(await asyncio.gather(*t))
+    sum_ = [0, 0, 0, 0]
+    for rets in rets_list:
+        for x in rets:
+            for i in range(4):
+                sum_[i] = sum_[i] + len(x[i])
+    print(
+        str(year)
+        + "/"
+        + str(month)
+        + " main update:"
+        + str(sum_[0])
+        + " main delete:"
+        + str(sum_[1])
+        + " main add:"
+        + str(sum_[2])
+        + " sub update:"
+        + str(sum_[3])
+    )
+    await auto_transfer(year, month, mf_main, new_data, auto_transfer_list)
 
     print(str(year) + "/" + str(month) + " end")
 
 
-def auto_transfer_run(year, month, mf_main, new_data, auto_transfer_list):
+async def auto_transfer(year, month, mf_main, new_data, auto_transfer_list):
     data_in = list(filter(lambda a: not a["is_transfer"] and a["amount"] > 0, new_data))
     data_out = list(filter(lambda a: not a["is_transfer"] and a["amount"] < 0, new_data))
     transfer_list = []
@@ -239,5 +257,4 @@ def auto_transfer_run(year, month, mf_main, new_data, auto_transfer_list):
                             data_in.remove(di)
                             break
     print(str(year) + "/" + str(month) + " transfer:" + str(len(transfer_list)))
-    for transfer in transfer_list:
-        mf_main.transfer(*transfer)
+    await asyncio.gather(*[mf_main.transfer(*transfer) for transfer in transfer_list])

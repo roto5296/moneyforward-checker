@@ -2,12 +2,22 @@ import datetime
 import json
 
 import gspread
+import gspread_asyncio
+from google.oauth2.service_account import Credentials
 
 
 class SpreadSheet:
     def __init__(self, jsontext, sheet_id):
-        gc = gspread.service_account_from_dict(json.loads(jsontext))
-        self._wb = gc.open_by_key(sheet_id)
+        creds = Credentials.from_service_account_info(json.loads(jsontext))
+        self._scoped = creds.with_scopes(
+            ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+        )
+        self._agcm = gspread_asyncio.AsyncioGspreadClientManager(lambda: self._scoped)
+        self._sheet_id = sheet_id
+
+    async def login(self):
+        agc = await self._agcm.authorize()
+        self._wb = await agc.open_by_key(self._sheet_id)
 
     @staticmethod
     def dict2ssformat(data):
@@ -48,22 +58,22 @@ class SpreadSheet:
             )
         return convert_data
 
-    def get(self, year, month):
+    async def get(self, year, month):
         sname = str(year - 2000).zfill(2) + str(month).zfill(2)
         try:
-            ws = self._wb.worksheet(sname)
+            ws = await self._wb.worksheet(sname)
         except gspread.exceptions.WorksheetNotFound:
             return []
-        data = ws.get_all_values()[2:]
-        ret = self.ssformat2dict(data)
+        data = await ws.get_all_values()
+        ret = self.ssformat2dict(data[2:])
         ret = sorted(ret, key=lambda x: (x["date"], x["transaction_id"]), reverse=True)
         return ret
 
-    def merge(self, year, month, data, max_num=200):
+    async def merge(self, year, month, data, max_num=200):
         convert_data = self.dict2ssformat(data)
         month_b = 12 if month == 1 else month - 1
         year_b = year - 1 if month == 1 else year
-        wss = self._wb.worksheets()
+        wss = await self._wb.worksheets()
         sheet_names = [i.title for i in wss]
         sname = str(year - 2000).zfill(2) + str(month).zfill(2)
         try:
@@ -72,7 +82,7 @@ class SpreadSheet:
             snameb = str(year_b - 2000).zfill(2) + str(month_b).zfill(2)
             wsb_index = sheet_names.index(snameb)
             wst_index = sheet_names.index("template")
-            ws = self._wb.duplicate_sheet(
+            ws = await self._wb.duplicate_sheet(
                 wss[wst_index].id, insert_sheet_index=wsb_index, new_sheet_name=sname
             )
-        ws.update("A3", convert_data + [[""] * 8] * (max_num - len(data)))
+        await ws.update("A3", convert_data + [[""] * 8] * (max_num - len(data)))

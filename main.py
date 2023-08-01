@@ -1,67 +1,66 @@
 import argparse
+import asyncio
 import datetime
 import json
 import os
 import sys
-from concurrent.futures import ThreadPoolExecutor
+from contextlib import AsyncExitStack
 
-from mfscraping import MFScraper
-from mfscraping.exceptions import FetchTimeout, LoginFailed
+from mfscraping_asyncio import MFScraper
+from mfscraping_asyncio.exceptions import FetchTimeout, LoginFailed
 
 import mfsync
 import sssync
 from spreadsheet import SpreadSheet
 
 
-def main(ym_list, is_update, is_mfsync, is_sssync, is_lambda, update_maxtime, aclist=None):
-    mf_main = MFScraper(**json.loads(os.environ["MONEYFORWARD_KEYFILE"])["main"])
-    mf_subs = list(
-        map(lambda x: MFScraper(**x), json.loads(os.environ["MONEYFORWARD_KEYFILE"])["sub"])
-    )
-    print("login...")
-    try:
-        with ThreadPoolExecutor() as executor:
-            ret = executor.submit(mf_main.login)
-            rets = executor.map(lambda x: x.login(), mf_subs)
-            ret.result()
-            list(rets)
-        print("LOGIN success")
-    except LoginFailed:
-        print("LOGIN fail")
-        sys.exit()
-    if is_update:
-        print("update...")
+async def main(ym_list, is_update, is_mfsync, is_sssync, is_lambda, update_maxtime, aclist=None):
+    async with AsyncExitStack() as stack:
+        mf_main = await stack.enter_async_context(
+            MFScraper(**json.loads(os.environ["MONEYFORWARD_KEYFILE"])["main"], timeout=20)
+        )
+        mf_subs = await asyncio.gather(
+            *[
+                stack.enter_async_context(MFScraper(**x, timeout=20))
+                for x in json.loads(os.environ["MONEYFORWARD_KEYFILE"])["sub"]
+            ]
+        )
+        print("login...")
         try:
-            with ThreadPoolExecutor() as executor:
-                ret = executor.submit(mf_main.fetch, maxwaiting=update_maxtime)
-                rets = executor.map(lambda x: x.fetch(maxwaiting=update_maxtime), mf_subs)
-                ret.result()
-                list(rets)
-            print("UPDATE success")
-        except FetchTimeout:
-            print("UPDATE timeout")
-    if is_mfsync:
-        print("mfsync...")
-        if not isinstance(aclist, list):
-            aclist = json.loads(os.environ["ACLIST"])
-        auto_transfer_list = json.loads(os.environ["AUTO_TRANSFER_LIST"])
-        with ThreadPoolExecutor() as executor:
-            rets = []
-            for year, month in ym_list:
-                rets.append(
-                    executor.submit(
-                        mfsync.run, year, month, mf_main, mf_subs, aclist, auto_transfer_list
-                    )
+            await asyncio.gather(mf_main.login(), *[x.login() for x in mf_subs])
+            print("LOGIN success")
+        except LoginFailed:
+            print("LOGIN fail")
+            sys.exit()
+        if is_update:
+            print("update...")
+            try:
+                await asyncio.gather(
+                    mf_main.fetch(maxwaiting=update_maxtime),
+                    *[x.fetch(maxwaiting=update_maxtime) for x in mf_subs]
                 )
-            [ret.result() for ret in rets]
-    if is_sssync:
-        print("sssync...")
-        ss = SpreadSheet(os.environ["SPREADSHEET_KEYFILE"], os.environ["SPREADSHEET_ID"])
-        with ThreadPoolExecutor() as executor:
-            rets = []
-            for year, month in ym_list:
-                rets.append(executor.submit(sssync.run, year, month, mf_main, ss, is_lambda))
-            [ret.result() for ret in rets]
+                print("UPDATE success")
+            except FetchTimeout:
+                print("UPDATE timeout")
+        if is_mfsync:
+            print("mfsync...")
+            if not isinstance(aclist, list):
+                aclist = json.loads(os.environ["ACLIST"])
+            auto_transfer_list = json.loads(os.environ["AUTO_TRANSFER_LIST"])
+
+            await asyncio.gather(
+                *[
+                    mfsync.run(year, month, mf_main, mf_subs, aclist, auto_transfer_list)
+                    for year, month in ym_list
+                ]
+            )
+        if is_sssync:
+            print("sssync...")
+            ss = SpreadSheet(os.environ["SPREADSHEET_KEYFILE"], os.environ["SPREADSHEET_ID"])
+            await ss.login()
+            await asyncio.gather(
+                *[sssync.run(year, month, mf_main, ss, is_lambda) for year, month in ym_list]
+            )
 
 
 def lambda_handler(event, context):
@@ -73,7 +72,17 @@ def lambda_handler(event, context):
         )
         for i in range(event.get("period", 6))
     ]
-    main(ym_list, event["update"], event["mfsync"], event["sssync"], True, 0, event.get("aclist"))
+    asyncio.run(
+        main(
+            ym_list,
+            event["update"],
+            event["mfsync"],
+            event["sssync"],
+            True,
+            0,
+            event.get("aclist"),
+        )
+    )
 
 
 if __name__ == "__main__":
@@ -92,4 +101,4 @@ if __name__ == "__main__":
         )
         for i in range(args.period)
     ]
-    main(ym_list, args.update, args.mfsync, True, False, 300)
+    asyncio.run(main(ym_list, args.update, args.mfsync, True, False, 300))

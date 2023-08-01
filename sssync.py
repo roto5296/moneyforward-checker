@@ -1,25 +1,21 @@
+import asyncio
 import difflib
-from concurrent.futures import ThreadPoolExecutor
 
 from mfscraping.exceptions import DataDoesNotExist
 
 from spreadsheet import SpreadSheet
 
 
-def getdata(year, month, obj):
+async def getdata(year, month, obj):
     try:
-        return obj.get(year, month)
+        return await obj.get(year, month)
     except DataDoesNotExist:
         return []
 
 
-def run(year, month, mf, ss, is_lambda):
+async def run(year, month, mf, ss, is_lambda):
     print(str(year) + "/" + str(month) + " start")
-    with ThreadPoolExecutor() as executor:
-        f_mf = executor.submit(getdata, year, month, mf)
-        f_ss = executor.submit(getdata, year, month, ss)
-        mfdata = f_mf.result()
-        sdata = f_ss.result()
+    mfdata, sdata = await asyncio.gather(getdata(year, month, mf), getdata(year, month, ss))
     if sdata == mfdata:
         print(str(year) + "/" + str(month) + " SAME")
     elif len(mfdata) == 0:
@@ -36,5 +32,5 @@ def run(year, month, mf, ss, is_lambda):
                         [", ".join(map(str, i)) for i in SpreadSheet.dict2ssformat(sdata)],
                     )
                 )
-        ss.merge(year, month, mfdata)
+        await ss.merge(year, month, mfdata)
     print(str(year) + "/" + str(month) + " end")
