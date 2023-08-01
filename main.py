@@ -47,7 +47,7 @@ def main(ym_list, is_update, is_mfsync, is_sssync, is_lambda, update_maxtime, ac
         auto_transfer_list = json.loads(os.environ["AUTO_TRANSFER_LIST"])
         with ThreadPoolExecutor() as executor:
             rets = []
-            for (year, month) in ym_list:
+            for year, month in ym_list:
                 rets.append(
                     executor.submit(
                         mfsync.run, year, month, mf_main, mf_subs, aclist, auto_transfer_list
@@ -59,7 +59,7 @@ def main(ym_list, is_update, is_mfsync, is_sssync, is_lambda, update_maxtime, ac
         ss = SpreadSheet(os.environ["SPREADSHEET_KEYFILE"], os.environ["SPREADSHEET_ID"])
         with ThreadPoolExecutor() as executor:
             rets = []
-            for (year, month) in ym_list:
+            for year, month in ym_list:
                 rets.append(executor.submit(sssync.run, year, month, mf_main, ss, is_lambda))
             [ret.result() for ret in rets]
 

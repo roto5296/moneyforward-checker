@@ -11,7 +11,7 @@ def getdata(year, month, obj):
         return []
 
 
-def run2(mmdl, msdl, auto_transfer_list):
+def run2(mmdl, msdl):
     main_update_list = []
     main_delete_list = []
     main_add_list = []
@@ -78,10 +78,6 @@ def run2(mmdl, msdl, auto_transfer_list):
         data.pop("transaction_id")
         data["lcategory"] = "未分類"
         data["mcategory"] = "未分類"
-        for at in auto_transfer_list:
-            if at["search"] in data["content"]:
-                data["is_transfer"] = True
-                data["account"] = [at["account_from"], at["account_to"]]
         main_add_list.append((msd["transaction_id"], data))
     return (main_update_list, main_delete_list, main_add_list, sub_update_list)
 
@@ -132,10 +128,9 @@ def run(year, month, mf_main, mf_subs, account_lists, auto_transfer_list):
                     run2,
                     [list(ac_filter(mfmaindata, ac)) for ac in account_list],
                     [list(ac_filter(mfsubdata, ac)) for ac in account_list],
-                    [list(ac_filter(auto_transfer_list, ac)) for ac in account_list],
                 )
             )
-        rets_list = [list(ret) for ret in rets_list]
+        rets_list = list(rets_list)
         main_update_all_list = [[y for x in rets for y in x[0]] for rets in rets_list]
         main_delete_all_list = [[y for x in rets for y in x[1]] for rets in rets_list]
         main_add_all_list = [[y for x in rets for y in x[2]] for rets in rets_list]
@@ -159,27 +154,90 @@ def run(year, month, mf_main, mf_subs, account_lists, auto_transfer_list):
             rets1 = executor.map(lambda x: mf_main.update(**x), main_update_list)
             rets2 = executor.map(lambda x: mf_main.delete(**x), main_delete_list)
             rets3 = executor.map(
-                lambda x, y: y.update(**x), sub_update_list, [mf_sub] * len(sub_update_list)
+                lambda x, y: y.update(**x),
+                sub_update_list,
+                [mf_sub] * len(sub_update_list),
             )
         list(rets1)
         list(rets2)
         list(rets3)
-    is_add = False
     for main_add_list in main_add_all_list:
         for id, data in reversed(main_add_list):
             mf_main.save(**data)
-            is_add = True
-    if is_add:
-        new_data = mf_main.get(year, month)
-        new_data.sort(key=lambda x: x["transaction_id"], reverse=True)
-        with ThreadPoolExecutor() as executor:
-            for mf_sub, main_add_list in zip(reversed(mf_subs), reversed(main_add_all_list)):
-                for i, (id, data) in enumerate(main_add_list):
-                    executor.submit(
-                        lambda a, b: mf_sub.update(
-                            a, new_data[b]["amount"], memo=new_data[b]["transaction_id"]
-                        ),
-                        id,
-                        i,
-                    )
+    new_data = mf_main.get(year, month)
+    new_data.sort(key=lambda x: x["transaction_id"], reverse=True)
+    with ThreadPoolExecutor() as executor:
+        for mf_sub, main_add_list in zip(reversed(mf_subs), reversed(main_add_all_list)):
+            for i, (id, data) in enumerate(main_add_list):
+                executor.submit(
+                    lambda a, b: mf_sub.update(
+                        a, new_data[b]["amount"], memo=new_data[b]["transaction_id"]
+                    ),
+                    id,
+                    i,
+                )
+    auto_transfer_run(year, month, mf_main, new_data, auto_transfer_list)
+
     print(str(year) + "/" + str(month) + " end")
+
+
+def auto_transfer_run(year, month, mf_main, new_data, auto_transfer_list):
+    data_in = list(filter(lambda a: not a["is_transfer"] and a["amount"] > 0, new_data))
+    data_out = list(filter(lambda a: not a["is_transfer"] and a["amount"] < 0, new_data))
+    transfer_list = []
+    for auto_transfer in auto_transfer_list:
+        if not auto_transfer["search_to"]:
+            for do in data_out[:]:
+                if (
+                    do["account"] == auto_transfer["account_from"]
+                    and auto_transfer["search_from"] in do["content"]
+                ):
+                    transfer_list.append(
+                        [
+                            do["transaction_id"],
+                            auto_transfer["account_to"],
+                            auto_transfer["sub_account_to"],
+                        ]
+                    )
+                    data_out.remove(do)
+        elif not auto_transfer["search_from"]:
+            for di in data_in[:]:
+                if (
+                    di["account"] == auto_transfer["account_to"]
+                    and auto_transfer["search_to"] in di["content"]
+                ):
+                    transfer_list.append(
+                        [
+                            di["transaction_id"],
+                            auto_transfer["account_from"],
+                            auto_transfer["sub_account_from"],
+                        ]
+                    )
+                    data_in.remove(di)
+        else:
+            for do in data_out[:]:
+                if (
+                    do["account"] == auto_transfer["account_from"]
+                    and auto_transfer["search_from"] in do["content"]
+                ):
+                    for di in data_in[:]:
+                        if (
+                            di["account"] == auto_transfer["account_to"]
+                            and auto_transfer["search_to"] in di["content"]
+                            and abs(do["amount"]) == abs(di["amount"])
+                            and do["date"] == di["date"]
+                        ):
+                            transfer_list.append(
+                                [
+                                    do["transaction_id"],
+                                    auto_transfer["account_to"],
+                                    auto_transfer["sub_account_to"],
+                                    di["transaction_id"],
+                                ]
+                            )
+                            data_out.remove(do)
+                            data_in.remove(di)
+                            break
+    print(str(year) + "/" + str(month) + " transfer:" + str(len(transfer_list)))
+    for transfer in transfer_list:
+        mf_main.transfer(*transfer)
