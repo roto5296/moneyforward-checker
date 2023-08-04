@@ -3,9 +3,23 @@ import asyncio
 from mfscraping.exceptions import DataDoesNotExist
 
 
-async def get_data(year, month, obj):
+async def get_data(year, month, obj, transfer_disable=False):
     try:
-        return await obj.get(year, month)
+        data = await obj.get(year, month)
+        if transfer_disable:
+            is_transfer = False
+            tlist = []
+            for d in data:
+                if d["is_transfer"]:
+                    is_transfer = True
+                    tlist.append(obj.disable_transfer(d["transaction_id"]))
+            if is_transfer:
+                await asyncio.gather(*tlist)
+                return await obj.get(year, month)
+            else:
+                return data
+        else:
+            return data
     except DataDoesNotExist:
         return []
 
@@ -74,7 +88,7 @@ async def match_data(ac, t_main, t_sub):
                     msdl.remove(msd)
                     break
             mmdl.remove(mmd)
-    main_delete_list.extend([{"transaction_id": x["transaction_id"]} for x in mmdl])
+    main_delete_list.extend([x["transaction_id"] for x in mmdl])
     for msd in msdl:
         data = {**msd}
         data.pop("memo")
@@ -94,39 +108,19 @@ def ac_filter(data, ac):
     )
 
 
-async def transfer_disable(year, month, obj, t_sub):
-    data = await t_sub
-    is_transfer = False
-    tlist = []
-    for d in data:
-        if d["is_transfer"]:
-            is_transfer = True
-            tlist.append(obj.disable_transfer(d["transaction_id"]))
-    if is_transfer:
-        await asyncio.gather(*tlist)
-        return await get_data(year, month, obj)
-    else:
-        return data
-
-
-async def add_data(year, month, mf_main, mf_subs, t_match_data):
-    rets_list = []
-    for tmp in t_match_data:
-        rets_list.append(await asyncio.gather(*tmp))
-    main_add_all_list = [[y for x in rets for y in x[2]] for rets in rets_list]
+async def add_data(mf_main, main_add_all_list):
     for main_add_list in main_add_all_list:
         for id, data in reversed(main_add_list):
             await mf_main.save(**data)
-    new_data = await mf_main.get(year, month)
+
+
+async def update_add_sub_date(mf_subs, main_add_all_list, new_data):
     new_data.sort(key=lambda x: x["transaction_id"], reverse=True)
-    func = []
     for mf_sub, main_add_list in zip(reversed(mf_subs), reversed(main_add_all_list)):
         for i, (id, data) in enumerate(main_add_list):
-            func.append(
+            asyncio.create_task(
                 mf_sub.update(id, new_data[i]["amount"], memo=new_data[i]["transaction_id"])
             )
-    await asyncio.gather(*func)
-    return new_data
 
 
 async def update_data(mf_main, t_data):
@@ -136,7 +130,7 @@ async def update_data(mf_main, t_data):
 
 async def delete_data(mf_main, t_data):
     data = await t_data
-    await asyncio.gather(*[mf_main.delete(**x) for x in data[1]])
+    await asyncio.gather(*[mf_main.delete(x) for x in data[1]])
 
 
 async def update_sub_data(mf_sub, t_data):
@@ -145,16 +139,12 @@ async def update_sub_data(mf_sub, t_data):
 
 
 async def run(year, month, mf_main, mf_subs, account_lists, auto_transfer_list):
-    print(str(year) + "/" + str(month) + " start")
+    print("mfsync " + str(year) + "/" + str(month) + " start")
     t_main = asyncio.create_task(get_data(year, month, mf_main))
-    t_subs = [asyncio.create_task(get_data(year, month, mf_sub)) for mf_sub in mf_subs]
-    t_subs2 = [
-        asyncio.create_task(transfer_disable(year, month, mf_sub, t_sub))
-        for mf_sub, t_sub in zip(mf_subs, t_subs)
-    ]
+    t_subs = [asyncio.create_task(get_data(year, month, mf_sub, True)) for mf_sub in mf_subs]
     t_match_data = [
         [asyncio.create_task(match_data(ac, t_main, t_sub)) for ac in account_list]
-        for account_list, t_sub in zip(account_lists, t_subs2)
+        for account_list, t_sub in zip(account_lists, t_subs)
     ]
     t_update_data = [
         [asyncio.create_task(update_data(mf_main, x)) for x in tmp] for tmp in t_match_data
@@ -162,41 +152,57 @@ async def run(year, month, mf_main, mf_subs, account_lists, auto_transfer_list):
     t_delete_data = [
         [asyncio.create_task(delete_data(mf_main, x)) for x in tmp] for tmp in t_match_data
     ]
-    t_sub_update_data = [
+    [
         [asyncio.create_task(update_sub_data(mf_sub, x)) for x in tmp]
         for mf_sub, tmp in zip(mf_subs, t_match_data)
     ]
-    new_data = await add_data(year, month, mf_main, mf_subs, t_match_data)
-    for tmp in t_update_data:
-        await asyncio.gather(*tmp)
-    for tmp in t_delete_data:
-        await asyncio.gather(*tmp)
-    for tmp in t_sub_update_data:
-        await asyncio.gather(*tmp)
-    rets_list = []
-    for t in t_match_data:
-        rets_list.append(await asyncio.gather(*t))
-    sum_ = [0, 0, 0, 0]
-    for rets in rets_list:
-        for x in rets:
-            for i in range(4):
-                sum_[i] = sum_[i] + len(x[i])
+    rets_list = await asyncio.gather(*[asyncio.gather(*tmp) for tmp in t_match_data])
+    main_update_all_list = [[y for x in rets for y in x[0]] for rets in rets_list]
+    main_delete_all_list = [[y for x in rets for y in x[1]] for rets in rets_list]
+    main_add_all_list = [[y for x in rets for y in x[2]] for rets in rets_list]
+    sub_update_all_list = [[y for x in rets for y in x[3]] for rets in rets_list]
+    update_sum = sum([len(x) for x in main_update_all_list])
+    delete_sum = sum([len(x) for x in main_delete_all_list])
+    add_sum = sum([len(x) for x in main_add_all_list])
+    sub_update_sum = sum([len(x) for x in sub_update_all_list])
+    await add_data(mf_main, main_add_all_list)
+    if add_sum:
+        await asyncio.gather(*[asyncio.gather(*tmp) for tmp in t_update_data])
+        await asyncio.gather(*[asyncio.gather(*tmp) for tmp in t_delete_data])
+        new_data = await get_data(year, month, mf_main)
+        await update_add_sub_date(mf_subs, main_add_all_list, new_data)
+    elif update_sum or delete_sum:
+        data = await t_main
+        data2 = [x for x in data if x["transaction_id"] not in sum(main_delete_all_list, [])]
+        for main_update in sum(main_update_all_list, []):
+            ret = next(
+                filter(lambda x: x["transaction_id"] == main_update["transaction_id"], data2), None
+            )
+            ret.update(main_update)
+        new_data = data2
+    else:
+        new_data = await t_main
+    transfer_sum = await auto_transfer(year, month, mf_main, new_data, auto_transfer_list)
+    if transfer_sum:
+        new_data = await get_data(year, month, mf_main)
     print(
-        str(year)
+        "mfsync "
+        + str(year)
         + "/"
         + str(month)
         + " main update:"
-        + str(sum_[0])
+        + str(update_sum)
         + " main delete:"
-        + str(sum_[1])
+        + str(delete_sum)
         + " main add:"
-        + str(sum_[2])
+        + str(add_sum)
         + " sub update:"
-        + str(sum_[3])
+        + str(sub_update_sum)
+        + " transfer:"
+        + str(transfer_sum)
     )
-    await auto_transfer(year, month, mf_main, new_data, auto_transfer_list)
-
-    print(str(year) + "/" + str(month) + " end")
+    print("mfsync " + str(year) + "/" + str(month) + " end")
+    return new_data
 
 
 async def auto_transfer(year, month, mf_main, new_data, auto_transfer_list):
@@ -256,5 +262,5 @@ async def auto_transfer(year, month, mf_main, new_data, auto_transfer_list):
                             data_out.remove(do)
                             data_in.remove(di)
                             break
-    print(str(year) + "/" + str(month) + " transfer:" + str(len(transfer_list)))
     await asyncio.gather(*[mf_main.transfer(*transfer) for transfer in transfer_list])
+    return len(transfer_list)

@@ -14,8 +14,18 @@ import sssync
 from spreadsheet import SpreadSheet
 
 
-async def main(ym_list, is_update, is_mfsync, is_sssync, is_lambda, update_maxtime, aclist=None):
+async def main(
+    ym_list,
+    is_update,
+    is_mfsync,
+    is_sssync,
+    is_lambda,
+    update_maxtime,
+    aclist=None,
+    auto_transfer_list=None,
+):
     async with AsyncExitStack() as stack:
+        main_task = asyncio.current_task()
         mf_main = await stack.enter_async_context(
             MFScraper(**json.loads(os.environ["MONEYFORWARD_KEYFILE"])["main"], timeout=20)
         )
@@ -34,33 +44,49 @@ async def main(ym_list, is_update, is_mfsync, is_sssync, is_lambda, update_maxti
             sys.exit()
         if is_update:
             print("update...")
-            try:
-                await asyncio.gather(
-                    mf_main.fetch(maxwaiting=update_maxtime),
-                    *[x.fetch(maxwaiting=update_maxtime) for x in mf_subs]
-                )
+            results = await asyncio.gather(
+                mf_main.fetch(maxwaiting=update_maxtime),
+                *[x.fetch(maxwaiting=update_maxtime) for x in mf_subs],
+                return_exceptions=True
+            )
+            is_success = True
+            for result in results:
+                if isinstance(result, FetchTimeout):
+                    print("UPDATE timeout")
+                    is_success = False
+                    break
+            if is_success:
                 print("UPDATE success")
-            except FetchTimeout:
-                print("UPDATE timeout")
         if is_mfsync:
-            print("mfsync...")
+            print("mfsync task start")
             if not isinstance(aclist, list):
                 aclist = json.loads(os.environ["ACLIST"])
-            auto_transfer_list = json.loads(os.environ["AUTO_TRANSFER_LIST"])
-
-            await asyncio.gather(
-                *[
+            if not isinstance(auto_transfer_list, list):
+                auto_transfer_list = json.loads(os.environ["AUTO_TRANSFER_LIST"])
+            tasks = [
+                asyncio.create_task(
                     mfsync.run(year, month, mf_main, mf_subs, aclist, auto_transfer_list)
-                    for year, month in ym_list
-                ]
-            )
+                )
+                for year, month in ym_list
+            ]
+        else:
+            tasks = [asyncio.create_task(mf_main.get(year, month)) for year, month in ym_list]
+        await asyncio.sleep(0)
         if is_sssync:
-            print("sssync...")
+            print("sssync task start")
             ss = SpreadSheet(os.environ["SPREADSHEET_KEYFILE"], os.environ["SPREADSHEET_ID"])
             await ss.login()
-            await asyncio.gather(
-                *[sssync.run(year, month, mf_main, ss, is_lambda) for year, month in ym_list]
-            )
+            [
+                asyncio.create_task(sssync.run(year, month, task, ss, is_lambda))
+                for (year, month), task in zip(ym_list, tasks)
+            ]
+            await asyncio.sleep(0)
+        while True:
+            all_tasks = list(asyncio.all_tasks())
+            if len(all_tasks) == 1:
+                break
+            all_tasks.remove(main_task)
+            await asyncio.gather(*all_tasks)
 
 
 def lambda_handler(event, context):
@@ -81,6 +107,7 @@ def lambda_handler(event, context):
             True,
             0,
             event.get("aclist"),
+            event.get("auto_transfer_list"),
         )
     )
 

@@ -85,4 +85,4 @@ class SpreadSheet:
             ws = await self._wb.duplicate_sheet(
                 wss[wst_index].id, insert_sheet_index=wsb_index, new_sheet_name=sname
             )
-        await ws.update("A3", convert_data + [[""] * 8] * (max_num - len(data)))
+        await ws.update("A3", convert_data + [[""] * 8] * max((max_num - len(data), 0)))
