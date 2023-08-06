@@ -23,15 +23,19 @@ async def main(
     update_maxtime,
     aclist=None,
     auto_transfer_list=None,
+    timeout=None,
 ):
     async with AsyncExitStack() as stack:
+        t = {}
+        if timeout:
+            t.update({"timeout": timeout})
         main_task = asyncio.current_task()
         mf_main = await stack.enter_async_context(
-            MFScraper(**json.loads(os.environ["MONEYFORWARD_KEYFILE"])["main"], timeout=20)
+            MFScraper(**json.loads(os.environ["MONEYFORWARD_KEYFILE"])["main"], **t)
         )
         mf_subs = await asyncio.gather(
             *[
-                stack.enter_async_context(MFScraper(**x, timeout=20))
+                stack.enter_async_context(MFScraper(**x, **t))
                 for x in json.loads(os.environ["MONEYFORWARD_KEYFILE"])["sub"]
             ]
         )
@@ -108,6 +112,7 @@ def lambda_handler(event, context):
             0,
             event.get("aclist"),
             event.get("auto_transfer_list"),
+            event.get("timeout"),
         )
     )
 
