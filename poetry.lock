@@ -492,7 +492,7 @@ beautifulsoup4 = "^4.9.3"
 type = "git"
 url = "https://github.com/roto5296/moneyforward-scraping-asyncio-py.git"
 reference = "main"
-resolved_reference = "89a3b2639e250b84371ff5565b82f1ee55481783"
+resolved_reference = "34b29ba2b58d327ff4826e906bf4aead91f688b1"
 
 [[package]]
 name = "multidict"
