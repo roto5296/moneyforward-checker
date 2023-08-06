@@ -1,8 +1,6 @@
 name: AWS Lambda Deploy
 on:
   push:
-    branches:
-      - master
 jobs:
   deploy:
     runs-on: ubuntu-latest
@@ -44,8 +42,16 @@ jobs:
         run: |
           pip3 install -r requirements.txt -t .
 
-      - name: lambda update
+      - name: lambda pre-update
         run: |
           pip3 install awscli
           zip -r package.zip ./*
+      - name: lambda update for dev
+        if: github.ref_name == 'dev'
+        run: |
           aws lambda update-function-code --function-name mf --zip-file fileb://package.zip --no-publish
+      - name: lambda update for master
+        if: github.ref_name == 'master'
+        run: |
+          aws lambda update-function-code --function-name mf --zip-file fileb://package.zip --no-publish
+          aws lambda publish-version --function-name mf --description "commit ${{ github.sha }}"
