@@ -11,6 +11,7 @@ from mfscraping_asyncio.exceptions import FetchTimeout, LoginFailed
 
 import mfsync
 import sssync
+from drive import Drive
 from spreadsheet import SpreadSheet
 
 
@@ -25,6 +26,7 @@ async def main(
     auto_transfer_list=None,
     timeout=None,
 ):
+    drive = Drive(os.environ["SPREADSHEET_KEYFILE"])
     async with AsyncExitStack() as stack:
         t = {}
         if timeout:
@@ -64,9 +66,15 @@ async def main(
         if is_mfsync:
             print("mfsync task start")
             if not isinstance(aclist, list):
-                aclist = json.loads(os.environ["ACLIST"])
+                if os.environ.get("ACCOUNT_LIST"):
+                    aclist = json.loads(os.environ["ACCOUNT_LIST"])
+                else:
+                    aclist = json.loads(drive.get(os.environ["ACCOUNT_LIST_ID"]))
             if not isinstance(auto_transfer_list, list):
-                auto_transfer_list = json.loads(os.environ["AUTO_TRANSFER_LIST"])
+                if os.environ.get("AUTO_TRANSFER_LIST"):
+                    auto_transfer_list = json.loads(os.environ["AUTO_TRANSFER_LIST"])
+                else:
+                    auto_transfer_list = json.loads(drive.get(os.environ["AUTO_TRANSFER_LIST_ID"]))
             tasks = [
                 asyncio.create_task(
                     mfsync.run(year, month, mf_main, mf_subs, aclist, auto_transfer_list)
