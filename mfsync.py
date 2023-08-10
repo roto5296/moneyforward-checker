@@ -209,58 +209,111 @@ async def auto_transfer(year, month, mf_main, new_data, auto_transfer_list):
     data_in = list(filter(lambda a: not a["is_transfer"] and a["amount"] > 0, new_data))
     data_out = list(filter(lambda a: not a["is_transfer"] and a["amount"] < 0, new_data))
     transfer_list = []
+
+    for auto_transfer in auto_transfer_list:
+        if auto_transfer["search_from"] is None and auto_transfer["search_to"] is None:
+            raise
+        for ft in ["from", "to"]:
+            keys = ["account_" + ft, "search_" + ft, "sub_account_" + ft]
+            if auto_transfer[keys[1]] is None:
+                if not isinstance(auto_transfer[keys[0]], str):
+                    raise
+                if auto_transfer[keys[2]] is not None and isinstance(auto_transfer[keys[2]], str):
+                    raise
+            else:
+                tmp = [
+                    len(auto_transfer[x]) if isinstance(auto_transfer[x], list) else 0
+                    for x in keys
+                ]
+                if sum(tmp) != 0:
+                    l_ = max(tmp)
+                    if any(x != l_ for x in filter(lambda x: x > 0, tmp)):
+                        raise
+                    for a, b in zip(keys, tmp):
+                        if b == 0:
+                            auto_transfer[a] = [auto_transfer[a]] * l_
+                else:
+                    for a in keys:
+                        auto_transfer[a] = [auto_transfer[a]]
+
     for auto_transfer in auto_transfer_list:
         if not auto_transfer["search_to"]:
-            for do in data_out[:]:
-                if (
-                    do["account"] == auto_transfer["account_from"]
-                    and auto_transfer["search_from"] in do["content"]
-                ):
-                    transfer_list.append(
-                        [
-                            do["transaction_id"],
-                            auto_transfer["account_to"],
-                            auto_transfer["sub_account_to"],
-                        ]
-                    )
-                    data_out.remove(do)
+            data_out_filter = list(
+                filter(
+                    lambda x: any(
+                        x["account"] == y and z in x["content"]
+                        for y, z in zip(
+                            auto_transfer["account_from"], auto_transfer["search_from"]
+                        )
+                    ),
+                    data_out,
+                )
+            )
+            for do in data_out_filter:
+                transfer_list.append(
+                    [
+                        do["transaction_id"],
+                        auto_transfer["account_to"],
+                        auto_transfer["sub_account_to"],
+                    ]
+                )
+                data_out.remove(do)
         elif not auto_transfer["search_from"]:
-            for di in data_in[:]:
-                if (
-                    di["account"] == auto_transfer["account_to"]
-                    and auto_transfer["search_to"] in di["content"]
-                ):
-                    transfer_list.append(
-                        [
-                            di["transaction_id"],
-                            auto_transfer["account_from"],
-                            auto_transfer["sub_account_from"],
-                        ]
-                    )
-                    data_in.remove(di)
+            data_in_filter = list(
+                filter(
+                    lambda x: any(
+                        x["account"] == y and z in x["content"]
+                        for y, z in zip(auto_transfer["account_to"], auto_transfer["search_to"])
+                    ),
+                    data_in,
+                )
+            )
+            for di in data_in_filter:
+                transfer_list.append(
+                    [
+                        di["transaction_id"],
+                        auto_transfer["account_from"],
+                        auto_transfer["sub_account_from"],
+                    ]
+                )
+                data_in.remove(di)
         else:
-            for do in data_out[:]:
-                if (
-                    do["account"] == auto_transfer["account_from"]
-                    and auto_transfer["search_from"] in do["content"]
-                ):
-                    for di in data_in[:]:
-                        if (
-                            di["account"] == auto_transfer["account_to"]
-                            and auto_transfer["search_to"] in di["content"]
-                            and abs(do["amount"]) == abs(di["amount"])
-                            and do["date"] == di["date"]
-                        ):
-                            transfer_list.append(
-                                [
-                                    do["transaction_id"],
-                                    auto_transfer["account_to"],
-                                    auto_transfer["sub_account_to"],
-                                    di["transaction_id"],
-                                ]
+            data_out_filter = list(
+                filter(
+                    lambda x: any(
+                        x["account"] == y and z in x["content"]
+                        for y, z in zip(
+                            auto_transfer["account_from"], auto_transfer["search_from"]
+                        )
+                    ),
+                    data_out,
+                )
+            )
+            for do in data_out_filter:
+                for di in data_in:
+                    if (
+                        do["account"] != di["account"]
+                        and abs(do["amount"]) == abs(di["amount"])
+                        and do["date"] == di["date"]
+                        and any(
+                            di["account"] == y and z in di["content"]
+                            for y, z in zip(
+                                auto_transfer["account_to"], auto_transfer["search_to"]
                             )
-                            data_out.remove(do)
-                            data_in.remove(di)
-                            break
+                        )
+                    ):
+                        transfer_list.append(
+                            [
+                                do["transaction_id"],
+                                di["account"],
+                                auto_transfer["sub_account_to"][
+                                    auto_transfer["account_to"].index(di["account"])
+                                ],
+                                di["transaction_id"],
+                            ]
+                        )
+                        data_out.remove(do)
+                        data_in.remove(di)
+                        break
     await asyncio.gather(*[mf_main.transfer(*transfer) for transfer in transfer_list])
     return len(transfer_list)
