@@ -5,16 +5,13 @@ description = ""
 authors = ["roto5296 <hikun5296@gmail.com>"]
 
 [tool.poetry.dependencies]
-python = "^3.8"
+python = "^3.10"
 mfscraping = {git = "https://github.com/roto5296/moneyforward-scraping-py.git", branch = "master"}
 mfscraping-asyncio = {git = "https://github.com/roto5296/moneyforward-scraping-asyncio-py.git", branch = "main"}
 gspread-asyncio = "^1.9.0"
 google-auth = "^2.22.0"
 psutil = "^5.9.5"
 google-api-python-client = "^2.96.0"
-
-[tool.poetry.dev-dependencies]
-flake8 = "*"
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]

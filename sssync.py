@@ -1,19 +1,22 @@
-# import asyncio
 import difflib
+from asyncio import Task
 
-from mfscraping.exceptions import DataDoesNotExist
+from mfscraping_asyncio import MFTransaction
+from mfscraping_asyncio.exceptions import DataDoesNotExist
 
 from spreadsheet import SpreadSheet
 
 
-async def getdata(year, month, obj):
+async def getdata(year: int, month: int, obj: SpreadSheet) -> list[MFTransaction]:
     try:
         return await obj.get(year, month)
     except DataDoesNotExist:
         return []
 
 
-async def run(year, month, t_mfdata, ss, is_lambda):
+async def run(
+    year: int, month: int, t_mfdata: Task[list[MFTransaction]], ss: SpreadSheet, is_lambda: bool
+) -> None:
     print("sssync " + str(year) + "/" + str(month) + " start")
     sdata = await getdata(year, month, ss)
     mfdata = await t_mfdata
@@ -29,8 +32,8 @@ async def run(year, month, t_mfdata, ss, is_lambda):
             with open(fname, mode="w") as f:
                 f.write(
                     d.make_file(
-                        [", ".join(map(str, i)) for i in SpreadSheet.dict2ssformat(mfdata)],
-                        [", ".join(map(str, i)) for i in SpreadSheet.dict2ssformat(sdata)],
+                        [", ".join(map(str, i)) for i in SpreadSheet.mf2ssformat(mfdata)],
+                        [", ".join(map(str, i)) for i in SpreadSheet.mf2ssformat(sdata)],
                     )
                 )
         await ss.merge(year, month, mfdata, len(sdata))
