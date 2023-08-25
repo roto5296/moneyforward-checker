@@ -16,16 +16,16 @@ from spreadsheet import SpreadSheet
 
 
 async def main(
-    ym_list,
-    is_update,
-    is_mfsync,
-    is_sssync,
-    is_lambda,
-    update_maxtime,
-    aclist=None,
-    auto_transfer_list=None,
-    timeout=None,
-):
+    ym_list: list[tuple[int, int]],
+    is_update: bool,
+    is_mfsync: bool,
+    is_sssync: bool,
+    is_lambda: bool,
+    update_maxtime: int,
+    aclist: list[list[str | list[str]]] | None = None,
+    auto_transfer_list: list[dict[str, str]] | None = None,
+    timeout: int | None = None,
+) -> None:
     drive = Drive(os.environ["SPREADSHEET_KEYFILE"])
     async with AsyncExitStack() as stack:
         t = {}
@@ -65,22 +65,25 @@ async def main(
                 print("UPDATE success")
         if is_mfsync:
             print("mfsync task start")
-            if not isinstance(aclist, list):
+            if aclist is None:
                 if os.environ.get("ACCOUNT_LIST"):
                     aclist = json.loads(os.environ["ACCOUNT_LIST"])
                 else:
                     aclist = json.loads(drive.get(os.environ["ACCOUNT_LIST_ID"]))
-            if not isinstance(auto_transfer_list, list):
+            if auto_transfer_list is None:
                 if os.environ.get("AUTO_TRANSFER_LIST"):
                     auto_transfer_list = json.loads(os.environ["AUTO_TRANSFER_LIST"])
                 else:
                     auto_transfer_list = json.loads(drive.get(os.environ["AUTO_TRANSFER_LIST_ID"]))
-            tasks = [
-                asyncio.create_task(
-                    mfsync.run(year, month, mf_main, mf_subs, aclist, auto_transfer_list)
-                )
-                for year, month in ym_list
-            ]
+            if aclist is not None and auto_transfer_list is not None:
+                tasks = [
+                    asyncio.create_task(
+                        mfsync.run(year, month, mf_main, mf_subs, aclist, auto_transfer_list)
+                    )
+                    for year, month in ym_list
+                ]
+            else:
+                tasks = []
         else:
             tasks = [asyncio.create_task(mf_main.get(year, month)) for year, month in ym_list]
         await asyncio.sleep(0)
@@ -97,7 +100,8 @@ async def main(
             all_tasks = list(asyncio.all_tasks())
             if len(all_tasks) == 1:
                 break
-            all_tasks.remove(main_task)
+            if main_task:
+                all_tasks.remove(main_task)
             await asyncio.gather(*all_tasks)
 
 
