@@ -389,6 +389,8 @@ async def auto_transfer(
                         transfer_list.append((do, di, None))
                         data_out_filter.remove(do)
                         data_in_filter.remove(di)
+                        data_out.remove(do)
+                        data_in.remove(di)
                         break
 
     await asyncio.gather(*[mf_main.transfer(*transfer) for transfer in transfer_list])

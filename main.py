@@ -22,7 +22,7 @@ async def main(
     is_sssync: bool,
     is_lambda: bool,
     update_maxtime: int,
-    aclist: list[list[str | list[str]]] | None = None,
+    aclist: list[list[str | list[str] | list[list[str]]]] | None = None,
     auto_transfer_list: list[dict[str, str]] | None = None,
     timeout: int | None = None,
 ) -> None:
