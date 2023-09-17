@@ -2,7 +2,6 @@ import asyncio
 import dataclasses
 from asyncio import Task
 from collections.abc import Iterable
-from typing import TypedDict
 
 from mfscraping_asyncio import Account, MFScraper, MFTransaction, str2Account
 from mfscraping_asyncio.exceptions import DataDoesNotExist
@@ -196,7 +195,6 @@ async def run(
     mf_main: MFScraper,
     mf_subs: list[MFScraper],
     account_lists: list[list[str | list[str] | list[list[str]]]],
-    auto_transfer_list: list[dict[str, str]],
 ) -> list[MFTransaction]:
     print("mfsync " + str(year) + "/" + str(month) + " start")
     new_account_lists: list[list[tuple[Account, Account | list[Account]]]] = []
@@ -270,9 +268,6 @@ async def run(
         new_data = data2
     else:
         new_data = await t_main
-    transfer_sum = await auto_transfer(mf_main, new_data, auto_transfer_list)
-    if transfer_sum:
-        new_data = await get_data(year, month, mf_main)
     print(
         "mfsync "
         + str(year)
@@ -286,112 +281,6 @@ async def run(
         + str(add_sum)
         + " sub update:"
         + str(sub_update_sum)
-        + " transfer:"
-        + str(transfer_sum)
     )
     print("mfsync " + str(year) + "/" + str(month) + " end")
     return new_data
-
-
-async def auto_transfer(
-    mf_main: MFScraper, new_data: list[MFTransaction], auto_transfer_list: list[dict]
-) -> int:
-    class AutoTransfer(TypedDict, total=False):
-        account_from: list[Account]
-        search_from: list[str]
-        account_to: list[Account]
-        search_to: list[str]
-        no_search_account: Account
-
-    data_in = list(filter(lambda a: not a.is_transfer() and a.amount > 0, new_data))
-    data_out = list(filter(lambda a: not a.is_transfer() and a.amount < 0, new_data))
-    transfer_list: list[tuple[MFTransaction, MFTransaction | None, Account | None]] = []
-    new_auto_transfer_list: list[AutoTransfer] = []
-
-    for auto_transfer in auto_transfer_list:
-        if auto_transfer["search_from"] is None and auto_transfer["search_to"] is None:
-            raise
-        nat: AutoTransfer = {}
-        for ft in ["from", "to"]:
-            keys = ["account_" + ft, "search_" + ft]
-
-            if auto_transfer[keys[1]] is None:
-                if not isinstance(auto_transfer[keys[0]], str):
-                    raise
-                nat["no_search_account"] = str2Account(auto_transfer[keys[0]])
-            else:
-                tmp = tuple(
-                    len(auto_transfer[x]) if isinstance(auto_transfer[x], list) else 0
-                    for x in keys
-                )
-                l_ = max(tmp)
-                match tmp:
-                    case (0, 0):
-                        nat[keys[0]] = [str2Account(auto_transfer[keys[0]])]
-                        nat[keys[1]] = [auto_transfer[keys[1]]]
-                    case (0, _):
-                        nat[keys[0]] = [str2Account(x) for x in [auto_transfer[keys[0]]] * l_]
-                        nat[keys[1]] = auto_transfer[keys[1]]
-                    case (_, 0):
-                        nat[keys[0]] = [str2Account(x) for x in auto_transfer[keys[0]]]
-                        nat[keys[1]] = [auto_transfer[keys[1]]] * l_
-                    case (_, _):
-                        if any(x != l_ for x in filter(lambda x: x > 0, tmp)):
-                            raise
-                        nat[keys[0]] = [str2Account(x) for x in auto_transfer[keys[0]]]
-                        nat[keys[1]] = auto_transfer[keys[1]]
-        new_auto_transfer_list.append(nat)
-
-    for new_auto_transfer in new_auto_transfer_list:
-
-        def filter_out(x: MFTransaction) -> bool:
-            if "account_from" in new_auto_transfer and "search_from" in new_auto_transfer:
-                return any(
-                    x.account == y and z in x.content
-                    for y, z in zip(
-                        new_auto_transfer["account_from"], new_auto_transfer["search_from"]
-                    )
-                )
-            else:
-                return False
-
-        def filter_in(x: MFTransaction) -> bool:
-            if "account_to" in new_auto_transfer and "search_to" in new_auto_transfer:
-                return any(
-                    x.account == y and z in x.content
-                    for y, z in zip(
-                        new_auto_transfer["account_to"], new_auto_transfer["search_to"]
-                    )
-                )
-            else:
-                return False
-
-        if "search_to" not in new_auto_transfer and "no_search_account" in new_auto_transfer:
-            data_out_filter = list(filter(filter_out, data_out))
-            for do in data_out_filter:
-                transfer_list.append((do, None, new_auto_transfer["no_search_account"]))
-                data_out.remove(do)
-        elif "search_from" not in new_auto_transfer and "no_search_account" in new_auto_transfer:
-            data_in_filter = list(filter(filter_in, data_in))
-            for di in data_in_filter:
-                transfer_list.append((di, None, new_auto_transfer["no_search_account"]))
-                data_in.remove(di)
-        else:
-            data_out_filter = list(filter(filter_out, data_out))
-            data_in_filter = list(filter(filter_in, data_in))
-            for do in data_out_filter[:]:
-                for di in data_in_filter[:]:
-                    if (
-                        do.account[0] != di.account[0]
-                        and abs(do.amount) == abs(di.amount)
-                        and do.date == di.date
-                    ):
-                        transfer_list.append((do, di, None))
-                        data_out_filter.remove(do)
-                        data_in_filter.remove(di)
-                        data_out.remove(do)
-                        data_in.remove(di)
-                        break
-
-    await asyncio.gather(*[mf_main.transfer(*transfer) for transfer in transfer_list])
-    return len(transfer_list)

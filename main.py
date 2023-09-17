@@ -11,6 +11,7 @@ from mfscraping_asyncio.exceptions import FetchTimeout, LoginFailed
 
 import mfsync
 import sssync
+import transfer
 from drive import Drive
 from spreadsheet import SpreadSheet
 
@@ -19,11 +20,13 @@ async def main(
     ym_list: list[tuple[int, int]],
     is_update: bool,
     is_mfsync: bool,
+    is_transfer: bool,
     is_sssync: bool,
     is_lambda: bool,
     update_maxtime: int,
     aclist: list[list[str | list[str] | list[list[str]]]] | None = None,
     auto_transfer_list: list[dict[str, str]] | None = None,
+    auto_withdrawal_list: list[dict[str, str]] | None = None,
     timeout: int | None = None,
 ) -> None:
     drive = Drive(os.environ["SPREADSHEET_KEYFILE"])
@@ -65,37 +68,31 @@ async def main(
                 print("UPDATE success")
         if is_mfsync:
             print("mfsync task start")
-            if aclist is None:
-                if os.environ.get("ACCOUNT_LIST"):
-                    aclist = json.loads(os.environ["ACCOUNT_LIST"])
-                else:
-                    aclist = json.loads(drive.get(os.environ["ACCOUNT_LIST_ID"]))
-            if auto_transfer_list is None:
-                if os.environ.get("AUTO_TRANSFER_LIST"):
-                    auto_transfer_list = json.loads(os.environ["AUTO_TRANSFER_LIST"])
-                else:
-                    auto_transfer_list = json.loads(drive.get(os.environ["AUTO_TRANSFER_LIST_ID"]))
-            if aclist is not None and auto_transfer_list is not None:
-                tasks = [
-                    asyncio.create_task(
-                        mfsync.run(year, month, mf_main, mf_subs, aclist, auto_transfer_list)
-                    )
-                    for year, month in ym_list
-                ]
-            else:
-                tasks = []
+            tasks = main_mfsync(mf_main, mf_subs, drive, aclist, ym_list)
         else:
             tasks = [asyncio.create_task(mf_main.get(year, month)) for year, month in ym_list]
         await asyncio.sleep(0)
-        if is_sssync:
-            print("sssync task start")
+
+        ss = None
+        if is_transfer or is_sssync:
             ss = SpreadSheet(os.environ["SPREADSHEET_KEYFILE"], os.environ["SPREADSHEET_ID"])
             await ss.login()
+
+        if is_transfer and ss is not None:
+            print("transfer task start")
+            tasks = transfer_mfsync(
+                mf_main, ss, drive, auto_transfer_list, auto_withdrawal_list, ym_list, tasks
+            )
+            await asyncio.sleep(0)
+
+        if is_sssync and ss is not None:
+            print("sssync task start")
             [
                 asyncio.create_task(sssync.run(year, month, task, ss, is_lambda))
                 for (year, month), task in zip(ym_list, tasks)
             ]
             await asyncio.sleep(0)
+
         while True:
             all_tasks = list(asyncio.all_tasks())
             if len(all_tasks) == 1:
@@ -103,6 +100,53 @@ async def main(
             if main_task:
                 all_tasks.remove(main_task)
             await asyncio.gather(*all_tasks)
+
+
+def main_mfsync(mf_main, mf_subs, drive, aclist, ym_list):
+    if aclist is None:
+        if os.environ.get("ACCOUNT_LIST"):
+            aclist = json.loads(os.environ["ACCOUNT_LIST"])
+        else:
+            aclist = json.loads(drive.get(os.environ["ACCOUNT_LIST_ID"]))
+    if aclist is not None:
+        tasks = [
+            asyncio.create_task(mfsync.run(year, month, mf_main, mf_subs, aclist))
+            for year, month in ym_list
+        ]
+    else:
+        tasks = []
+    return tasks
+
+
+def transfer_mfsync(mf_main, ss, drive, auto_transfer_list, auto_withdrawal_list, ym_list, tasks):
+    if auto_transfer_list is None:
+        if os.environ.get("AUTO_TRANSFER_LIST"):
+            auto_transfer_list = json.loads(os.environ["AUTO_TRANSFER_LIST"])
+        else:
+            auto_transfer_list = json.loads(drive.get(os.environ["AUTO_TRANSFER_LIST_ID"]))
+    if auto_withdrawal_list is None:
+        if os.environ.get("AUTO_WITHDRAWAL_LIST"):
+            auto_withdrawal_list = json.loads(os.environ["AUTO_WITHDRAWAL_LIST"])
+        else:
+            auto_withdrawal_list = json.loads(drive.get(os.environ["AUTO_WITHDRAWAL_LIST_ID"]))
+    if auto_transfer_list is not None and auto_withdrawal_list is not None:
+        tasks = [
+            asyncio.create_task(
+                transfer.run(
+                    year,
+                    month,
+                    mf_main,
+                    ss,
+                    task,
+                    auto_transfer_list,
+                    auto_withdrawal_list,
+                )
+            )
+            for (year, month), task in zip(ym_list, tasks)
+        ]
+    else:
+        tasks = []
+    return tasks
 
 
 def lambda_handler(event, context):
@@ -119,11 +163,13 @@ def lambda_handler(event, context):
             ym_list,
             event["update"],
             event["mfsync"],
+            event["transfer"],
             event["sssync"],
             True,
             0,
             event.get("aclist"),
             event.get("auto_transfer_list"),
+            event.get("auto_withdrawal_list"),
             event.get("timeout"),
         )
     )
@@ -134,6 +180,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--update", action="store_true")
     parser.add_argument("--mfsync", action="store_true")
+    parser.add_argument("--transfer", action="store_true")
     parser.add_argument("--year", type=int, default=dt_now_jst.year)
     parser.add_argument("--month", type=int, default=dt_now_jst.month)
     parser.add_argument("--period", type=int, default=6)
@@ -145,4 +192,4 @@ if __name__ == "__main__":
         )
         for i in range(args.period)
     ]
-    asyncio.run(main(ym_list, args.update, args.mfsync, True, False, 300))
+    asyncio.run(main(ym_list, args.update, args.mfsync, args.transfer, True, False, 300))
