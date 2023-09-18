@@ -12,6 +12,7 @@ from mfscraping_asyncio.exceptions import FetchTimeout, LoginFailed
 import mfsync
 import sssync
 import transfer
+import withdrawal
 from drive import Drive
 from spreadsheet import SpreadSheet
 
@@ -19,6 +20,7 @@ from spreadsheet import SpreadSheet
 async def main(
     ym_list: list[tuple[int, int]],
     is_update: bool,
+    is_wupdate: bool,
     is_mfsync: bool,
     is_transfer: bool,
     is_sssync: bool,
@@ -66,17 +68,22 @@ async def main(
                     break
             if is_success:
                 print("UPDATE success")
+
+        ss = None
+        if is_transfer or is_sssync or is_wupdate:
+            ss = SpreadSheet(os.environ["SPREADSHEET_KEYFILE"], os.environ["SPREADSHEET_ID"])
+            await ss.login()
+
+        if is_wupdate and ss is not None:
+            print("wupdate...")
+            await withdrawal.run(mf_main, mf_subs, ss)
+
         if is_mfsync:
             print("mfsync task start")
             tasks = main_mfsync(mf_main, mf_subs, drive, aclist, ym_list)
         else:
             tasks = [asyncio.create_task(mf_main.get(year, month)) for year, month in ym_list]
         await asyncio.sleep(0)
-
-        ss = None
-        if is_transfer or is_sssync:
-            ss = SpreadSheet(os.environ["SPREADSHEET_KEYFILE"], os.environ["SPREADSHEET_ID"])
-            await ss.login()
 
         if is_transfer and ss is not None:
             print("transfer task start")
@@ -162,6 +169,7 @@ def lambda_handler(event, context):
         main(
             ym_list,
             event["update"],
+            event["wupdate"],
             event["mfsync"],
             event["transfer"],
             event["sssync"],
@@ -179,6 +187,7 @@ if __name__ == "__main__":
     dt_now_jst = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=9)))
     parser = argparse.ArgumentParser()
     parser.add_argument("--update", action="store_true")
+    parser.add_argument("--wupdate", action="store_true")
     parser.add_argument("--mfsync", action="store_true")
     parser.add_argument("--transfer", action="store_true")
     parser.add_argument("--year", type=int, default=dt_now_jst.year)
@@ -192,4 +201,6 @@ if __name__ == "__main__":
         )
         for i in range(args.period)
     ]
-    asyncio.run(main(ym_list, args.update, args.mfsync, args.transfer, True, False, 300))
+    asyncio.run(
+        main(ym_list, args.update, args.wupdate, args.mfsync, args.transfer, True, False, 300)
+    )
