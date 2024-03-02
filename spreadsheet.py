@@ -32,11 +32,11 @@ class SpreadSheet:
                     d.date.strftime("%Y-%m-%d"),
                     d.content,
                     d.amount,
-                    Account2str(d.account_from()) + "," + Account2str(d.account_to())
-                    if d.is_transfer()
-                    else Account2str(d.account)
-                    if is_Account(d.account)
-                    else "",
+                    (
+                        Account2str(d.account_from()) + "," + Account2str(d.account_to())
+                        if d.is_transfer()
+                        else Account2str(d.account) if is_Account(d.account) else ""
+                    ),
                     "振替" if d.is_transfer() else d.lcategory,
                     d.mcategory,
                     d.memo,
@@ -166,4 +166,4 @@ class SpreadSheet:
                 insert_sheet_index=wsb_index,
                 new_sheet_name=sname,  # type:ignore
             )
-        await ws.update("A3", convert_data + [[""] * 8] * max((max_num - len(data), 0)))
+        await ws.update(convert_data + [[""] * 8] * max((max_num - len(data), 0)), "A3")
