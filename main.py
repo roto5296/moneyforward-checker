@@ -3,17 +3,21 @@ import asyncio
 import datetime
 import json
 import os
+import re
 import sys
+import time
 from contextlib import AsyncExitStack
 
 from mfscraping_asyncio import MFScraper
 from mfscraping_asyncio.exceptions import FetchTimeout, LoginFailed
 
+import auth
 import mfsync
 import sssync
 import transfer
 import withdrawal
 from drive import Drive
+from gmail import Gmail
 from spreadsheet import SpreadSheet
 
 
@@ -32,6 +36,7 @@ async def main(
     timeout: int | None = None,
 ) -> None:
     drive = Drive(os.environ["SPREADSHEET_KEYFILE"])
+    gmail = Gmail(auth.authenticate(os.environ["GOOGLEAPI_CRED"]))
     async with AsyncExitStack() as stack:
         t = {}
         if timeout:
@@ -47,9 +52,34 @@ async def main(
             ]
         )
         print("login...")
+        ret = await asyncio.gather(
+            mf_main.login(), *[x.login() for x in mf_subs], return_exceptions=True
+        )
+        time.sleep(10)
+        otps = ["000000"] * 8
+        query = (
+            "from:do_not_reply@moneyforward.com subject:マネーフォワード ID メールによる追加認証"
+        )
+        messages = gmail.get_mail_list(query)
+        time.sleep(1)
+        message_data = [gmail.get_subject_message(message["id"]) for message in messages]
+        for i, mail in enumerate(
+            [json.loads(os.environ["MONEYFORWARD_KEYFILE"])["main"]["id"]]
+            + [a["id"] for a in json.loads(os.environ["MONEYFORWARD_KEYFILE"])["sub"]]
+        ):
+            for data in message_data:
+                if data["to"] == mail:
+                    otp = re.search(r"\d\d\d\d\d\d", data["message"])
+                    if otp is not None:
+                        otps[i] = otp.group()
+                        break
         try:
-            await asyncio.gather(mf_main.login(), *[x.login() for x in mf_subs])
+            ret = await asyncio.gather(
+                mf_main.login_otp(otps[0]),
+                *[x.login_otp(otp) for x, otp in zip(mf_subs, otps[1:])]
+            )
             print("LOGIN success")
+            print(ret)
         except LoginFailed:
             print("LOGIN fail")
             sys.exit()
@@ -106,7 +136,10 @@ async def main(
                 break
             if main_task:
                 all_tasks.remove(main_task)
-            await asyncio.gather(*all_tasks)
+            try:
+                await asyncio.gather(*all_tasks)
+            except asyncio.CancelledError:
+                pass
 
 
 def main_mfsync(mf_main, mf_subs, drive, aclist, ym_list):
