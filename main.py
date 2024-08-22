@@ -35,7 +35,7 @@ async def main(
     auto_withdrawal_list: list[dict[str, str]] | None = None,
     timeout: int | None = None,
 ) -> None:
-    drive = Drive(os.environ["SPREADSHEET_KEYFILE"])
+    drive = Drive(auth.authenticate(os.environ["GOOGLEAPI_CRED"]))
     gmail = Gmail(auth.authenticate(os.environ["GOOGLEAPI_CRED"]))
     async with AsyncExitStack() as stack:
         t = {}
@@ -101,7 +101,9 @@ async def main(
 
         ss = None
         if is_transfer or is_sssync or is_wupdate:
-            ss = SpreadSheet(os.environ["SPREADSHEET_KEYFILE"], os.environ["SPREADSHEET_ID"])
+            ss = SpreadSheet(
+                auth.authenticate(os.environ["GOOGLEAPI_CRED"]), os.environ["SPREADSHEET_ID"]
+            )
             await ss.login()
 
         if is_wupdate and ss is not None:

@@ -1,19 +1,14 @@
 import asyncio
 import datetime
-import json
 
 import gspread
 import gspread_asyncio
-from google.oauth2.service_account import Credentials
 from mfscraping_asyncio import Account, Account2str, MFTransaction, is_Account, str2Account
 
 
 class SpreadSheet:
-    def __init__(self, jsontext: str, sheet_id: str) -> None:
-        creds = Credentials.from_service_account_info(json.loads(jsontext))
-        self._scoped = creds.with_scopes(
-            ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-        )
+    def __init__(self, cred, sheet_id: str) -> None:
+        self._scoped = cred
         self._agcm = gspread_asyncio.AsyncioGspreadClientManager(lambda: self._scoped)
         self._sheet_id = sheet_id
         self._withdrawal = None
