@@ -14,6 +14,7 @@ SCOPES = [
 
 def authenticate(cred_str=None):
     creds = None
+    new_cred_str = cred_str
     # The file token.pickle stores the user's access and refresh tokens, and is
     # created automatically when the authorization flow completes for the first
     # time.
@@ -32,10 +33,9 @@ def authenticate(cred_str=None):
             raise
 
         # Save the credentials for the next run
-        print("please save below")
-        print(codecs.encode(pickle.dumps(creds), "base64").decode())
+        new_cred_str = codecs.encode(pickle.dumps(creds), "base64").decode()
 
-    return creds
+    return creds, new_cred_str
 
 
 # authenticate(SCOPES)
