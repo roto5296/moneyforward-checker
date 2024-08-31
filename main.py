@@ -2,7 +2,6 @@ import argparse
 import asyncio
 import datetime
 import json
-import os
 import re
 import sys
 import time
@@ -18,6 +17,7 @@ import transfer
 import withdrawal
 from drive import Drive
 from gmail import Gmail
+from parameter import get_parameter, put_parameter
 from spreadsheet import SpreadSheet
 
 
@@ -35,21 +35,21 @@ async def main(
     auto_withdrawal_list: list[dict[str, str]] | None = None,
     timeout: int | None = None,
 ) -> None:
-    drive = Drive(auth.authenticate(os.environ["GOOGLEAPI_CRED"]))
-    gmail = Gmail(auth.authenticate(os.environ["GOOGLEAPI_CRED"]))
+    cred_str = get_parameter("GOOGLEAPI_CRED")
+    cred, new_cred_str = auth.authenticate(cred_str)
+    if cred_str != new_cred_str:
+        put_parameter("GOOGLEAPI_CRED", new_cred_str)
+    drive = Drive(cred)
+    gmail = Gmail(cred)
+    mf_keyfile = json.loads(get_parameter("MONEYFORWARD_KEYFILE"))
     async with AsyncExitStack() as stack:
         t = {}
         if timeout:
             t.update({"timeout": timeout})
         main_task = asyncio.current_task()
-        mf_main = await stack.enter_async_context(
-            MFScraper(**json.loads(os.environ["MONEYFORWARD_KEYFILE"])["main"], **t)
-        )
+        mf_main = await stack.enter_async_context(MFScraper(**mf_keyfile["main"], **t))
         mf_subs = await asyncio.gather(
-            *[
-                stack.enter_async_context(MFScraper(**x, **t))
-                for x in json.loads(os.environ["MONEYFORWARD_KEYFILE"])["sub"]
-            ]
+            *[stack.enter_async_context(MFScraper(**x, **t)) for x in mf_keyfile["sub"]]
         )
         print("login...")
         ret = await asyncio.gather(
@@ -64,8 +64,7 @@ async def main(
         time.sleep(1)
         message_data = [gmail.get_subject_message(message["id"]) for message in messages]
         for i, mail in enumerate(
-            [json.loads(os.environ["MONEYFORWARD_KEYFILE"])["main"]["id"]]
-            + [a["id"] for a in json.loads(os.environ["MONEYFORWARD_KEYFILE"])["sub"]]
+            [mf_keyfile["main"]["id"]] + [a["id"] for a in mf_keyfile["sub"]]
         ):
             for data in message_data:
                 if data["to"] == mail:
@@ -101,9 +100,7 @@ async def main(
 
         ss = None
         if is_transfer or is_sssync or is_wupdate:
-            ss = SpreadSheet(
-                auth.authenticate(os.environ["GOOGLEAPI_CRED"]), os.environ["SPREADSHEET_ID"]
-            )
+            ss = SpreadSheet(cred, get_parameter("SPREADSHEET_ID"))
             await ss.login()
 
         if is_wupdate and ss is not None:
@@ -146,10 +143,10 @@ async def main(
 
 def main_mfsync(mf_main, mf_subs, drive, aclist, ym_list):
     if aclist is None:
-        if os.environ.get("ACCOUNT_LIST"):
-            aclist = json.loads(os.environ["ACCOUNT_LIST"])
-        else:
-            aclist = json.loads(drive.get(os.environ["ACCOUNT_LIST_ID"]))
+        try:
+            aclist = json.loads(get_parameter("ACCOUNT_LIST"))
+        except BaseException:
+            aclist = json.loads(drive.get(get_parameter("ACCOUNT_LIST_ID")))
     if aclist is not None:
         tasks = [
             asyncio.create_task(mfsync.run(year, month, mf_main, mf_subs, aclist))
@@ -162,15 +159,15 @@ def main_mfsync(mf_main, mf_subs, drive, aclist, ym_list):
 
 def transfer_mfsync(mf_main, ss, drive, auto_transfer_list, auto_withdrawal_list, ym_list, tasks):
     if auto_transfer_list is None:
-        if os.environ.get("AUTO_TRANSFER_LIST"):
-            auto_transfer_list = json.loads(os.environ["AUTO_TRANSFER_LIST"])
-        else:
-            auto_transfer_list = json.loads(drive.get(os.environ["AUTO_TRANSFER_LIST_ID"]))
+        try:
+            auto_transfer_list = json.loads(get_parameter("AUTO_TRANSFER_LIST"))
+        except BaseException:
+            auto_transfer_list = json.loads(drive.get(get_parameter("AUTO_TRANSFER_LIST_ID")))
     if auto_withdrawal_list is None:
-        if os.environ.get("AUTO_WITHDRAWAL_LIST"):
-            auto_withdrawal_list = json.loads(os.environ["AUTO_WITHDRAWAL_LIST"])
-        else:
-            auto_withdrawal_list = json.loads(drive.get(os.environ["AUTO_WITHDRAWAL_LIST_ID"]))
+        try:
+            auto_withdrawal_list = json.loads(get_parameter("AUTO_WITHDRAWAL_LIST"))
+        except BaseException:
+            auto_withdrawal_list = json.loads(drive.get(get_parameter("AUTO_WITHDRAWAL_LIST_ID")))
     if auto_transfer_list is not None and auto_withdrawal_list is not None:
         tasks = [
             asyncio.create_task(
