@@ -8,8 +8,11 @@ def get_parameter(key_name):
     try:
         ssm = boto3.client("ssm")
         value = ssm.get_parameter(Name=key_name)["Parameter"]["Value"]
-    except (botocore.exceptions.NoRegionError, ssm.exceptions.ParameterNotFound):
-        value = os.environ[key_name]
+    except (
+        botocore.exceptions.NoRegionError,
+        botocore.exceptions.ClientError,
+    ):
+        value = os.environ.get(key_name)
     return value
 
 
