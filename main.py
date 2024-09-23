@@ -36,7 +36,8 @@ async def main(
     timeout: int | None = None,
 ) -> None:
     cred_str = get_parameter("GOOGLEAPI_CRED")
-    cred, new_cred_str = auth.authenticate(cred_str)
+    refresh_token = get_parameter("GOOGLEAPI_REFRESH_TOKEN")
+    cred, new_cred_str = auth.authenticate(cred_str, refresh_token)
     if cred_str != new_cred_str:
         put_parameter("GOOGLEAPI_CRED", new_cred_str)
     drive = Drive(cred)
