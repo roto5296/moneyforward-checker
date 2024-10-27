@@ -1,5 +1,6 @@
 import asyncio
 import dataclasses
+import datetime
 from asyncio import Task
 from collections.abc import Iterable
 
@@ -78,7 +79,11 @@ async def match_data(
     for mmd in mmdl[:]:
         if mmd.is_transfer():
             for msd in msdl[:]:
-                if mmd.date == msd.date and abs(mmd.amount) == abs(msd.amount):
+                if msd.date - datetime.timedelta(
+                    days=1
+                ) <= mmd.date <= msd.date + datetime.timedelta(days=1) and abs(mmd.amount) == abs(
+                    msd.amount
+                ):
                     msd.memo = str(mmd.transaction_id)
                     sub_update_list.append(msd)
                     msdl.remove(msd)
